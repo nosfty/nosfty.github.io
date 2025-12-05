@@ -134,7 +134,19 @@ function generateStars() {
 }
 generateStars();
 
-let peer = new Peer();
+let peer = new Peer({
+  config: {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' }
+      // Пример TURN сервера:
+      // {
+      //   urls: 'turn:turn.example.com:3478',
+      //   username: 'user',
+      //   credential: 'pass'
+      // }
+    ]
+  }
+});
 let conn;
 
 let localPlayer = null;
@@ -501,138 +513,92 @@ function gameLoop(timestamp) {
   
   // Мерцание звезд
   stars.forEach(s => {
-    s.brightness = s.baseBrightness + Math.sin(timestamp / 300 + s.phase) * 0.15;
-    s.brightness = Math.min(Math.max(s.brightness, 0), 1);
+    s.brightness = s.baseBrightness + Math.sin(timestamp / 300 + s.phase) * 0.5;
   });
   
-  localPlayer.update(dt);
-  remotePlayer.update(dt);
-  
-  captureZones.forEach(z => z.update(dt));
-  
-  updateCamera(dt);
-  
-  checkHits(localPlayer, remotePlayer);
-  checkHits(remotePlayer, localPlayer);
-  
-  sendState();
-  
-  draw();
-  drawMiniMap();
-  requestAnimationFrame(gameLoop);
-}
-
-function checkHits(shooter, target) {
-  if(shooter.dead) return;
-  shooter.bullets.forEach(bullet => {
-    if(bullet.destroyed) return;
-    const dx = bullet.x - target.x;
-    const dy = bullet.y - target.y;
-    const dist = Math.hypot(dx, dy);
-    if(dist < bullet.radius + target.radius && !target.dead) {
-      bullet.destroyed = true;
-      if(target === localPlayer) {
-        localPlayer.takeDamage(20);
-        sendHit(localPlayer.id, 20);
-      } else {
-        target.takeDamage(20);
+  if(localPlayer) {
+    localPlayer.update(dt);
+    captureZones.forEach(z => z.update(dt));
+    updateCamera(dt);
+    
+    // Обработка выстрелов и попаданий
+    // Простая проверка коллизий пуль и игроков
+    localPlayer.bullets.forEach(bullet => {
+      if(bullet.ownerId === localPlayer.id) {
+        if(remotePlayer && !remotePlayer.dead) {
+          const dist = Math.hypot(bullet.x - remotePlayer.x, bullet.y - remotePlayer.y);
+          if(dist < remotePlayer.radius + bullet.radius) {
+            remotePlayer.takeDamage(20);
+            sendHit(remotePlayer.id, 20);
+            bullet.destroyed = true;
+          }
+        }
       }
-    }
-  });
-}
-
-function drawStars() {
-  ctx.fillStyle = 'white';
+    });
+    
+    remotePlayer.bullets.forEach(bullet => {
+      if(bullet.ownerId === remotePlayer.id) {
+        if(localPlayer && !localPlayer.dead) {
+          const dist = Math.hypot(bullet.x - localPlayer.x, bullet.y - localPlayer.y);
+          if(dist < localPlayer.radius + bullet.radius) {
+            localPlayer.takeDamage(20);
+            sendHit(localPlayer.id, 20);
+            bullet.destroyed = true;
+          }
+        }
+      }
+    });
+    
+    sendState();
+  }
+  
+  // Рисуем звезды
+  ctx.fillStyle = 'black';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
   stars.forEach(s => {
-    ctx.globalAlpha = s.brightness;
+    const brightness = Math.min(Math.max(s.brightness, 0), 1);
+    ctx.fillStyle = `rgba(255,255,255,${brightness})`;
     ctx.beginPath();
-    ctx.arc(s.x - camera.x, s.y - camera.y, s.radius, 0, Math.PI * 2);
+    ctx.arc(s.x - camera.x, s.y - camera.y, s.radius, 0, Math.PI*2);
     ctx.fill();
   });
-  ctx.globalAlpha = 1;
-}
-
-function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  drawStars();
   
   // Рисуем зоны захвата
   captureZones.forEach(z => z.draw(ctx, camera));
   
-  localPlayer.draw(ctx, camera);
-  remotePlayer.draw(ctx, camera);
-}
-
-function drawMiniMap() {
-  const scaleX = miniMap.width / MAP_WIDTH;
-  const scaleY = miniMap.height / MAP_HEIGHT;
+  if(localPlayer) localPlayer.draw(ctx, camera);
+  if(remotePlayer) remotePlayer.draw(ctx, camera);
   
-  miniCtx.fillStyle = '#000';
-  miniCtx.fillRect(0, 0, miniMap.width, miniMap.height);
-  
-  // Звезды на миникарте
+  // Мини-карта
+  miniCtx.fillStyle = 'black';
+  miniCtx.fillRect(0,0,miniMap.width, miniMap.height);
   miniCtx.fillStyle = 'white';
   stars.forEach(s => {
-    miniCtx.globalAlpha = s.brightness;
-    miniCtx.beginPath();
-    miniCtx.arc(s.x * scaleX, s.y * scaleY, s.radius * 0.5, 0, Math.PI * 2);
-    miniCtx.fill();
+    miniCtx.fillRect((s.x / MAP_WIDTH) * miniMap.width, (s.y / MAP_HEIGHT) * miniMap.height, 1, 1);
   });
-  miniCtx.globalAlpha = 1;
-  
-  // Игроки на миникарте
-  function drawShip(x, y, color) {
-    miniCtx.fillStyle = color;
+  if(localPlayer) {
+    miniCtx.fillStyle = localPlayer.color;
     miniCtx.beginPath();
-    miniCtx.moveTo(x + 10, y);
-    miniCtx.lineTo(x - 7, y + 7);
-    miniCtx.lineTo(x - 7, y - 7);
-    miniCtx.closePath();
+    miniCtx.arc((localPlayer.x / MAP_WIDTH) * miniMap.width, (localPlayer.y / MAP_HEIGHT) * miniMap.height, 6, 0, Math.PI * 2);
+    miniCtx.fill();
+  }
+  if(remotePlayer) {
+    miniCtx.fillStyle = remotePlayer.color;
+    miniCtx.beginPath();
+    miniCtx.arc((remotePlayer.x / MAP_WIDTH) * miniMap.width, (remotePlayer.y / MAP_HEIGHT) * miniMap.height, 6, 0, Math.PI * 2);
     miniCtx.fill();
   }
   
-  if(localPlayer) {
-    drawShip(localPlayer.x * scaleX, localPlayer.y * scaleY, 'cyan');
-  }
-  if(remotePlayer && remotePlayer.id) {
-    drawShip(remotePlayer.x * scaleX, remotePlayer.y * scaleY, 'orange');
-  }
-  
-  // Обзор камеры — прямоугольник
-  miniCtx.strokeStyle = 'lime';
-  miniCtx.lineWidth = 2;
-  miniCtx.strokeRect(camera.x * scaleX, camera.y * scaleY, canvas.width * scaleX, canvas.height * scaleY);
+  requestAnimationFrame(gameLoop);
 }
 
-// Управление мышью и клавишами
-
-document.addEventListener('mousemove', e => {
-  const rect = canvas.getBoundingClientRect();
-  mousePos.x = e.clientX - rect.left;
-  mousePos.y = e.clientY - rect.top;
-});
-
-document.addEventListener('keydown', e => {
-  keysPressed[e.key.toLowerCase()] = true;
-  if(e.key === ' ') {
-    localPlayer.shoot();
-    sendShoot();
-  }
-});
-
-document.addEventListener('keyup', e => {
-  keysPressed[e.key.toLowerCase()] = false;
-});
-
-copyBtn.onclick = () => {
-  if(!myIdSpan.textContent || myIdSpan.textContent === '...') return;
-  navigator.clipboard.writeText(myIdSpan.textContent).then(() => {
-    copyBtn.textContent = 'Скопировано!';
-    setTimeout(() => copyBtn.textContent = 'Скопировать', 1500);
-  }).catch(() => alert('Не удалось скопировать'));
-};
-
-// Респавн оверлей
+function showHitEffect() {
+  hitEffect.style.background = 'rgba(255, 0, 0, 0.5)';
+  clearTimeout(hitEffectTimeout);
+  hitEffectTimeout = setTimeout(() => {
+    hitEffect.style.background = 'rgba(255, 0, 0, 0)';
+  }, 300);
+}
 
 function showRespawnOverlay() {
   respawnOverlay.style.display = 'block';
@@ -643,22 +609,39 @@ function hideRespawnOverlay() {
 }
 
 function updateRespawnOverlay(timeLeft) {
-  const sec = Math.ceil(timeLeft);
-  respawnTimerSpan.textContent = sec > 0 ? sec : 0;
+  respawnTimerSpan.textContent = Math.ceil(timeLeft);
 }
 
-// Эффект попадания
-function showHitEffect() {
-  hitEffect.style.background = 'rgba(255,0,0,0.3)';
-  if(hitEffectTimeout) clearTimeout(hitEffectTimeout);
-  hitEffectTimeout = setTimeout(() => {
-    hitEffect.style.background = 'rgba(255,0,0,0)';
-  }, 200);
-}
+window.addEventListener('keydown', e => {
+  keysPressed[e.key.toLowerCase()] = true;
+});
+
+window.addEventListener('keyup', e => {
+  keysPressed[e.key.toLowerCase()] = false;
+});
+
+canvas.addEventListener('mousemove', e => {
+  mousePos.x = e.clientX;
+  mousePos.y = e.clientY;
+});
+
+canvas.addEventListener('mousedown', e => {
+  if(localPlayer && !localPlayer.dead) {
+    localPlayer.shoot();
+    sendShoot();
+  }
+});
+
+copyBtn.onclick = () => {
+  navigator.clipboard.writeText(myIdSpan.textContent).then(() => {
+    alert('ID скопирован');
+  });
+};
 
 function startGame() {
   requestAnimationFrame(gameLoop);
 }
+
 </script>
 
 </body>
