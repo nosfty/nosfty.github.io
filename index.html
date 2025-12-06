@@ -2,117 +2,140 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Heart Burst Tete</title>
+<title>Heart Burst Teto — Deluxe</title>
 <style>
     body {
         margin: 0;
-        background: #f0f0f0;
+        background: linear-gradient(135deg, #ff9bd4, #b19bff);
         height: 100vh;
         display: flex;
         justify-content: center;
         align-items: center;
-        font-family: sans-serif;
+        font-family: 'Segoe UI', sans-serif;
         overflow: hidden;
     }
 
-    #container { position: relative; text-align: center; }
-
-    #img {
-        height: 400px;
-        transition: transform 0.25s ease;
-        cursor: pointer;
-        display: block;
-        margin: auto;
+    #panel {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        background: rgba(255,255,255,0.25);
+        backdrop-filter: blur(12px);
+        padding: 20px;
+        border-radius: 20px;
+        box-shadow: 0 8px 20px rgba(0,0,0,0.25);
+        color: #fff;
+        max-width: 260px;
     }
 
-    .squash { transform: scaleY(0.2); }
+    #avatar {
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        border: 3px solid white;
+        object-fit: cover;
+        display: none;
+        margin-bottom: 10px;
+    }
+
+    #settings input {
+        width: 60px;
+        text-align: center;
+        border-radius: 6px;
+        border: none;
+        padding: 4px;
+    }
+
+    #container { text-align: center; position: relative; }
+
+    #img {
+        height: 420px;
+        transition: transform 0.25s ease;
+        cursor: pointer;
+        filter: drop-shadow(0 0 25px rgba(255,255,255,0.6));
+    }
+
+    .squash { transform: scale(1.05) rotate(2deg); }
 
     .heart {
         position: absolute;
         font-size: 32px;
-        color: red;
         opacity: 1;
         animation: fly 1s ease-out forwards;
         pointer-events: none;
+        filter: drop-shadow(0 0 10px red);
     }
 
     @keyframes fly {
         0% { transform: translate(-50%, 0) scale(1); opacity: 1; }
-        100% { transform: translate(-50%, -120px) scale(0.6); opacity: 0; }
+        100% { transform: translate(-50%, -140px) scale(0.6); opacity: 0; }
     }
 
-    #loginBtn {
-        padding: 10px 20px;
-        background: #5865F2;
+    #counter {
+        font-size: 26px;
+        font-weight: bold;
         color: white;
-        border: none;
-        border-radius: 8px;
-        cursor: pointer;
-        margin-bottom: 10px;
+        text-shadow: 0 0 10px black;
+        margin-top: 10px;
     }
-
-    #counter { font-size: 22px; margin-top: 10px; font-weight: bold; }
 </style>
 </head>
 <body>
 
-<div id="container">
-
+<div id="panel">
+    <img id="avatar">
+    <div id="userInfo">Не авторизован</div>
+    <br>
     <button id="loginBtn">Войти через Discord</button>
-    <div id="userInfo"></div>
+    <hr style="opacity:0.3; margin: 15px 0;">
+    <h3>Настройки кликов</h3>
+    <div id="settings">
+        Разброс X: <input id="rangeX" type="number" value="120"><br><br>
+        Разброс Y: <input id="rangeY" type="number" value="120"><br><br>
+        Размер ❤️: <input id="sizeH" type="number" value="32">
+    </div>
+</div>
 
-    <img id="img"
-         src="https://ih1.redbubble.net/image.5018714309.4771/flat,750x,075,f-pad,750x1000,f8f8f8.jpg"
-         alt="teto">
-
+<div id="container">
+    <img id="img" src="https://ih1.redbubble.net/image.5018714309.4771/flat,750x,075,f-pad,750x1000,f8f8f8.jpg" alt="teto">
     <div id="counter">❤️ 0</div>
 </div>
 
 <script>
-/* ------------------------------- Discord OAuth ------------------------------- */
-const CLIENT_ID = "1441197732948869290";            // <--- ВСТАВЬ
-const REDIRECT_URI = "https://nosfty.github.io/";      // <--- ВСТАВЬ  
-// например: "https://your-site.com/"
+/* ---------------- Discord OAuth ---------------- */
+const CLIENT_ID = "1441197732948869290";
+const REDIRECT_URI = "https://nosfty.github.io/";
 
-document.getElementById("loginBtn").onclick = () => {
-    const url =
-        `https://discord.com/oauth2/authorize?` +
-        `client_id=${CLIENT_ID}` +
-        `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-        `&response_type=token&scope=identify`;
+const avatarImg = document.getElementById("avatar");
 
+loginBtn.onclick = () => {
+    const url = `https://discord.com/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=token&scope=identify`;
     window.location.href = url;
 };
 
-// Если пользователь вернулся после логина
 window.addEventListener("load", async () => {
-    if (window.location.hash.includes("access_token")) {
-        const params = new URLSearchParams(window.location.hash.substring(1));
+    if (location.hash.includes("access_token")) {
+        const params = new URLSearchParams(location.hash.substring(1));
         const token = params.get("access_token");
 
         const user = await fetch("https://discord.com/api/users/@me", {
             headers: { Authorization: `Bearer ${token}` }
         }).then(r => r.json());
 
-        document.getElementById("userInfo").textContent =
-            `Вы вошли как: ${user.username}#${user.discriminator}`;
+        userInfo.textContent = `${user.username}`;
+        avatarImg.src = `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=128`;
+        avatarImg.style.display = "block";
 
         localStorage.setItem("tete_user_id", user.id);
-
-        // загрузить индивидуальный счётчик
         loadCounter();
-    } else {
-        loadCounter();
-    }
+    } else loadCounter();
 });
 
-/* ------------------------------- Счётчик ------------------------------- */
-const counterEl = document.getElementById("counter");
+/* ---------------- Счётчик ---------------- */
 let counter = 0;
-
 function loadCounter() {
     const user = localStorage.getItem("tete_user_id") || "guest";
-    counter = Number(localStorage.getItem(`tete_counter_${user}`) || 0);
+    counter = +localStorage.getItem(`tete_counter_${user}`) || 0;
     counterEl.textContent = `❤️ ${counter}`;
 }
 
@@ -121,31 +144,26 @@ function saveCounter() {
     localStorage.setItem(`tete_counter_${user}`, counter);
 }
 
-/* ------------------------------- Сердечки + клики ------------------------------- */
-const img = document.getElementById("img");
-const container = document.getElementById("container");
-
+/* ---------------- Сердечки ---------------- */
 img.addEventListener("click", () => {
-
-    // Увеличиваем счётчик
     counter++;
     counterEl.textContent = `❤️ ${counter}`;
     saveCounter();
 
-    // Анимация "squash"
     img.classList.add("squash");
     setTimeout(() => img.classList.remove("squash"), 250);
 
-    // Создание сердечка
     const heart = document.createElement("div");
     heart.textContent = "❤️";
     heart.className = "heart";
 
-    const randX = (Math.random() * 160) - 80;
-    const randY = (Math.random() * 160) - 80;
+    const rx = +rangeX.value;
+    const ry = +rangeY.value;
+    const size = +sizeH.value;
 
-    heart.style.left = `calc(50% + ${randX}px)`;
-    heart.style.top = `calc(50% + ${randY}px)`;
+    heart.style.fontSize = size + "px";
+    heart.style.left = `calc(50% + ${(Math.random() * rx * 2) - rx}px)`;
+    heart.style.top = `calc(50% + ${(Math.random() * ry * 2) - ry}px)`;
 
     container.appendChild(heart);
     setTimeout(() => heart.remove(), 1000);
