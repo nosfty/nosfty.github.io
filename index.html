@@ -70,6 +70,7 @@
 <body>
 
 <div id="ui">
+  <label>Версия: 1.0.0</label><br/>
   <label>Ваш ID: <span id="myId">...</span></label>
   <button id="copyBtn">Скопировать</button><br/>
   <label>Подключиться к ID: <input type="text" id="connectId" autocomplete="off" /></label>
@@ -137,13 +138,12 @@ generateStars();
 let peer = new Peer({
   config: {
     iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' }
-      // Пример TURN сервера:
-      // {
-      //   urls: 'turn:turn.example.com:3478',
-      //   username: 'user',
-      //   credential: 'pass'
-      // }
+      { urls: 'stun:stun.l.google.com:19302' },
+      {
+        urls: 'turn:freestun.net:3478',
+        username: 'free',
+        credential: 'free'
+      }
     ]
   }
 });
