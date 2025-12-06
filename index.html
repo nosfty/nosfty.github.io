@@ -4,8 +4,13 @@
 <meta charset="UTF-8">
 <title>Heart Burst Tete</title>
 
-<script src="https://cdn.jsdelivr.net/npm/@discord/embedded-app-sdk@1.5.1/dist/discord-sdk.umd.min.js"></script>
+<script type="module">
+    import { DiscordSDK } from "https://cdn.jsdelivr.net/npm/@discord/embedded-app-sdk/dist/discord-sdk.mjs";
 
+    const discordSdk = new DiscordSDK("YOUR_CLIENT_ID");
+
+    await discordSdk.ready();
+</script>
 <style>
     body {
         margin: 0;
@@ -151,3 +156,4 @@ img.addEventListener("click", () => {
 
 </body>
 </html>
+
