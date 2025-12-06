@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Heart Burst Tetе</title>
+<title>Heart Burst Tete</title>
 <style>
     body {
         margin: 0;
@@ -12,25 +12,21 @@
         justify-content: center;
         align-items: center;
         font-family: sans-serif;
-        overflow: hidden; /* чтобы сердечки не создавали скролл */
+        overflow: hidden;
     }
 
-    #container {
-        position: relative;
-    }
+    #container { position: relative; text-align: center; }
 
     #img {
         height: 400px;
         transition: transform 0.25s ease;
         cursor: pointer;
         display: block;
+        margin: auto;
     }
 
-    .squash {
-        transform: scaleY(0.2);
-    }
+    .squash { transform: scaleY(0.2); }
 
-    /* анимация сердечка */
     .heart {
         position: absolute;
         font-size: 32px;
@@ -44,44 +40,117 @@
         0% { transform: translate(-50%, 0) scale(1); opacity: 1; }
         100% { transform: translate(-50%, -120px) scale(0.6); opacity: 0; }
     }
+
+    #loginBtn {
+        padding: 10px 20px;
+        background: #5865F2;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        margin-bottom: 10px;
+    }
+
+    #counter { font-size: 22px; margin-top: 10px; font-weight: bold; }
 </style>
 </head>
 <body>
 
 <div id="container">
+
+    <button id="loginBtn">Войти через Discord</button>
+    <div id="userInfo"></div>
+
     <img id="img"
-         src="flat,750x,075,f-pad,750x1000,f8f8f8.jpg"
+         src="https://ih1.redbubble.net/image.5018714309.4771/flat,750x,075,f-pad,750x1000,f8f8f8.jpg"
          alt="teto">
+
+    <div id="counter">❤️ 0</div>
 </div>
 
 <script>
-    const img = document.getElementById("img");
-    const container = document.getElementById("container");
+/* ------------------------------- Discord OAuth ------------------------------- */
+const CLIENT_ID = "1441197732948869290";            // <--- ВСТАВЬ
+const REDIRECT_URI = "https://nosfty.github.io/";      // <--- ВСТАВЬ  
+// например: "https://your-site.com/"
 
-    img.addEventListener("click", () => {
+document.getElementById("loginBtn").onclick = () => {
+    const url =
+        `https://discord.com/oauth2/authorize?` +
+        `client_id=${CLIENT_ID}` +
+        `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+        `&response_type=token&scope=identify`;
 
-        /* --- Анимация тето --- */
-        img.classList.add("squash");
-        setTimeout(() => img.classList.remove("squash"), 250);
+    window.location.href = url;
+};
 
-        /* --- Сердечки ❤️ --- */
-        const heart = document.createElement("div");
-        heart.textContent = "❤️";
-        heart.className = "heart";
+// Если пользователь вернулся после логина
+window.addEventListener("load", async () => {
+    if (window.location.hash.includes("access_token")) {
+        const params = new URLSearchParams(window.location.hash.substring(1));
+        const token = params.get("access_token");
 
-        // случайная позиция появления (от -80 до +80 px)
-        const randX = (Math.random() * 160) - 80;
-        const randY = (Math.random() * 160) - 80;
+        const user = await fetch("https://discord.com/api/users/@me", {
+            headers: { Authorization: `Bearer ${token}` }
+        }).then(r => r.json());
 
-        heart.style.left = `calc(50% + ${randX}px)`;
-        heart.style.top = `calc(50% + ${randY}px)`;
+        document.getElementById("userInfo").textContent =
+            `Вы вошли как: ${user.username}#${user.discriminator}`;
 
-        container.appendChild(heart);
+        localStorage.setItem("tete_user_id", user.id);
 
-        setTimeout(() => heart.remove(), 1000);
-    });
+        // загрузить индивидуальный счётчик
+        loadCounter();
+    } else {
+        loadCounter();
+    }
+});
+
+/* ------------------------------- Счётчик ------------------------------- */
+const counterEl = document.getElementById("counter");
+let counter = 0;
+
+function loadCounter() {
+    const user = localStorage.getItem("tete_user_id") || "guest";
+    counter = Number(localStorage.getItem(`tete_counter_${user}`) || 0);
+    counterEl.textContent = `❤️ ${counter}`;
+}
+
+function saveCounter() {
+    const user = localStorage.getItem("tete_user_id") || "guest";
+    localStorage.setItem(`tete_counter_${user}`, counter);
+}
+
+/* ------------------------------- Сердечки + клики ------------------------------- */
+const img = document.getElementById("img");
+const container = document.getElementById("container");
+
+img.addEventListener("click", () => {
+
+    // Увеличиваем счётчик
+    counter++;
+    counterEl.textContent = `❤️ ${counter}`;
+    saveCounter();
+
+    // Анимация "squash"
+    img.classList.add("squash");
+    setTimeout(() => img.classList.remove("squash"), 250);
+
+    // Создание сердечка
+    const heart = document.createElement("div");
+    heart.textContent = "❤️";
+    heart.className = "heart";
+
+    const randX = (Math.random() * 160) - 80;
+    const randY = (Math.random() * 160) - 80;
+
+    heart.style.left = `calc(50% + ${randX}px)`;
+    heart.style.top = `calc(50% + ${randY}px)`;
+
+    container.appendChild(heart);
+    setTimeout(() => heart.remove(), 1000);
+});
 </script>
 
 </body>
 </html>
-
