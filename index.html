@@ -72,18 +72,26 @@
 </div>
 
 <script type="module">
-import { DiscordSDK } from "https://cdn.jsdelivr.net/npm/@discord/embedded-app-sdk/dist/discord-sdk.mjs";
+import { DiscordSDK } from "https://cdn.jsdelivr.net/npm/@discord/embedded-app-sdk/dist/embeddedAppSdk.es.js";
 
-const CLIENT_ID = "1441197732948869290"; // <--- ВСТАВЬ СВОЙ
+const CLIENT_ID = "1441197732948869290"; // <--- ВСТАВЬ СВОЙ CLIENT ID !!!
 
-const discordSdk = new DiscordSDK(CLIENT_ID);
+const sdk = new DiscordSDK({ clientId: CLIENT_ID });
 
-await discordSdk.ready();
+// Дожидаемся инициализации Discord
+await sdk.ready();
 
-// Запрос прав
-const { user } = await discordSdk.commands.authenticate();
+// Запрашиваем авторизацию
+const auth = await sdk.commands.authenticate();
 
-// Показ профиля
+if (!auth || !auth.user) {
+    document.body.innerHTML = "<h2>Не удалось авторизоваться внутри Discord Activity</h2>";
+    throw new Error("Auth failed");
+}
+
+const user = auth.user;
+
+// Показываем юзера
 document.getElementById("userInfo").textContent = `Вы вошли как: ${user.username}`;
 
 const avatarImg = document.getElementById("avatar");
@@ -93,18 +101,18 @@ avatarImg.src =
         : "https://cdn.discordapp.com/embed/avatars/0.png";
 avatarImg.style.display = "block";
 
-localStorage.setItem("tete_user_id", user.id);
-
 /* ---------------- СЧЁТЧИК ---------------- */
+const counterKey = `tete_counter_${user.id}`;
+let counter = Number(localStorage.getItem(counterKey) || 0);
+
 const counterEl = document.getElementById("counter");
-let counter = Number(localStorage.getItem(`tete_counter_${user.id}`) || 0);
 counterEl.textContent = `❤️ ${counter}`;
 
 function saveCounter() {
-    localStorage.setItem(`tete_counter_${user.id}`, counter);
+    localStorage.setItem(counterKey, counter);
 }
 
-/* ---------------- КЛИК + СЕРДЦА ---------------- */
+/* ---------------- КЛИКИ + СЕРДЦА ---------------- */
 const img = document.getElementById("img");
 const container = document.getElementById("container");
 
