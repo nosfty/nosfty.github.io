@@ -70,7 +70,7 @@
 <body>
 
 <div id="ui">
-  <label>Версия: 1.0.0</label><br/>
+  <label>Версия: 1.0.1</label><br/>
   <label>Ваш ID: <span id="myId">...</span></label>
   <button id="copyBtn">Скопировать</button><br/>
   <label>Подключиться к ID: <input type="text" id="connectId" autocomplete="off" /></label>
@@ -140,10 +140,10 @@ let peer = new Peer({
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       {
-        urls: 'turn:freestun.net:3478',
-        username: 'free',
-        credential: 'free'
-      }
+  urls: 'turn:turn.anyfirewall.com:443?transport=tcp',
+  username: 'webrtc',
+  credential: 'webrtc'
+}
     ]
   }
 });
