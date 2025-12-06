@@ -35,7 +35,7 @@ canvas#game{display:block;background:#000}
     <input id="connectId" maxlength="4" placeholder="Введите 4 цифры" autocomplete="off"/>
     <button id="connectBtn">Подключиться</button>
     <div id="statusMsg"></div>
-    <div style="margin-top:15px;font-size:12px;color:#555;text-align:center">Версия: 1.1.0 (с трейлами и щитом)</div>
+    <div style="margin-top:15px;font-size:12px;color:#555;text-align:center">Версия: 1.2.0 (с интерполяцией и отражением)</div>
 </div>
 
 <div id="respawnOverlay">
@@ -106,6 +106,12 @@ let peer, conn,
     keysPressed = {},
     mousePos = { x: 0, y: 0 },
     mousePressed = false;
+
+// Для интерполяции
+let remotePlayerBuffer = {
+    positions: [],
+    maxBufferSize: 3
+};
 
 class TrailParticle {
     constructor(x, y, color) {
@@ -240,18 +246,24 @@ class Player {
         this.dead = false;
         this.respawnCooldown = 0;
         
+        // Для интерполяции
+        this.targetX = this.x;
+        this.targetY = this.y;
+        this.lastUpdateTime = 0;
+        this.interpolationSpeed = 0.2; // Скорость интерполяции
+        
         // Трейл-эффекты
         this.trail = [];
         this.trailTimer = 0;
-        this.trailInterval = 0.05; // Добавляем частицу каждые 0.05 сек
+        this.trailInterval = 0.05;
         
         // Система энергии и щита
         this.maxEnergy = 100;
         this.energy = this.maxEnergy;
-        this.energyRegenRate = 15; // ед/сек
+        this.energyRegenRate = 15;
         this.shieldActive = false;
-        this.shieldEnergyCost = 25; // ед/сек при активации
-        this.shieldDamageReduction = 0.7; // 70% снижение урона
+        this.shieldEnergyCost = 25;
+        this.shieldDamageReduction = 0.7;
         this.shieldRadius = 35;
     }
     
@@ -263,16 +275,54 @@ class Player {
             return;
         }
         
+        // Для удаленного игрока используем интерполяцию
+        if (this !== localPlayer) {
+            const timeSinceLastUpdate = Date.now() - this.lastUpdateTime;
+            if (timeSinceLastUpdate < 200) { // Интерполируем только если данные свежие
+                // Плавное перемещение к целевой позиции
+                const dx = this.targetX - this.x;
+                const dy = this.targetY - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance > 1) {
+                    // Плавное движение с учетом dt
+                    const speed = Math.min(this.interpolationSpeed * dt * 60, distance);
+                    this.x += (dx / distance) * speed;
+                    this.y += (dy / distance) * speed;
+                }
+            }
+        } else {
+            // Локальный игрок - обычное управление
+            let mx = 0, my = 0;
+            if (keysPressed.w) my -= 1;
+            if (keysPressed.s) my += 1;
+            if (keysPressed.a) mx -= 1;
+            if (keysPressed.d) mx += 1;
+            
+            let len = Math.hypot(mx, my);
+            if (len > 0) {
+                mx /= len;
+                my /= len;
+            }
+            
+            const SPEED = 300;
+            this.x = Math.min(MAP_WIDTH - this.radius, Math.max(this.radius, this.x + mx * SPEED * dt));
+            this.y = Math.min(MAP_HEIGHT - this.radius, Math.max(this.radius, this.y + my * SPEED * dt));
+            
+            // Обновление угла поворота
+            const dx = mousePos.x + camera.x - this.x,
+                  dy = mousePos.y + camera.y - this.y;
+            this.angle = Math.atan2(dy, dx);
+        }
+        
         // Обновление трейла
         this.trailTimer += dt;
         if (this.trailTimer >= this.trailInterval) {
             this.trailTimer = 0;
-            // Добавляем частицу трейла
             const trailX = this.x - Math.cos(this.angle) * 15;
             const trailY = this.y - Math.sin(this.angle) * 15;
             this.trail.push(new TrailParticle(trailX, trailY, this.color));
             
-            // Ограничиваем количество частиц
             if (this.trail.length > 15) {
                 this.trail.shift();
             }
@@ -286,30 +336,6 @@ class Player {
             }
         }
         
-        // Управление движением
-        let mx = 0, my = 0;
-        if (keysPressed.w) my -= 1;
-        if (keysPressed.s) my += 1;
-        if (keysPressed.a) mx -= 1;
-        if (keysPressed.d) mx += 1;
-        
-        let len = Math.hypot(mx, my);
-        if (len > 0) {
-            mx /= len;
-            my /= len;
-        }
-        
-        const SPEED = 300;
-        this.x = Math.min(MAP_WIDTH - this.radius, Math.max(this.radius, this.x + mx * SPEED * dt));
-        this.y = Math.min(MAP_HEIGHT - this.radius, Math.max(this.radius, this.y + my * SPEED * dt));
-        
-        // Обновление угла поворота
-        if (localPlayer === this) {
-            const dx = mousePos.x + camera.x - this.x,
-                  dy = mousePos.y + camera.y - this.y;
-            this.angle = Math.atan2(dy, dx);
-        }
-        
         // Обновление пуль
         this.bullets.forEach(b => b.update(dt));
         this.bullets = this.bullets.filter(b => !b.destroyed);
@@ -317,7 +343,6 @@ class Player {
         // Обновление энергии и щита
         if (this === localPlayer) {
             if (this.shieldActive && mousePressed) {
-                // Активно используем щит - тратим энергию
                 this.energy -= this.shieldEnergyCost * dt;
                 if (this.energy <= 0) {
                     this.energy = 0;
@@ -325,20 +350,17 @@ class Player {
                     hideShieldEffect();
                 }
             } else {
-                // Регенерация энергии
                 this.energy += this.energyRegenRate * dt;
                 if (this.energy > this.maxEnergy) {
                     this.energy = this.maxEnergy;
                 }
             }
             
-            // Обновление UI энергии
             updateEnergyUI(this.energy / this.maxEnergy);
         }
     }
     
     draw(ctx, camera) {
-        // Рисуем трейл
         this.trail.forEach(particle => particle.draw(ctx, camera));
         
         ctx.save();
@@ -347,7 +369,6 @@ class Player {
         
         if (this.dead) ctx.globalAlpha = 0.4;
         
-        // Рисуем корабль
         ctx.shadowColor = this.color;
         ctx.shadowBlur = 20;
         ctx.fillStyle = this.color;
@@ -361,7 +382,7 @@ class Player {
         ctx.globalAlpha = 1;
         ctx.restore();
         
-        // Рисуем щит если активен
+        // Щит
         if (this.shieldActive) {
             ctx.save();
             ctx.globalAlpha = 0.3;
@@ -375,10 +396,9 @@ class Player {
             ctx.restore();
         }
         
-        // Рисуем пули
         this.bullets.forEach(b => b.draw(ctx, camera));
         
-        // Рисуем полосу здоровья
+        // Полоса здоровья
         const w = 40, h = 6,
               x = this.x - camera.x - w/2,
               y = this.y - camera.y - this.radius - 15;
@@ -401,11 +421,9 @@ class Player {
     takeDamage(amount) {
         if (this.dead) return;
         
-        // Если щит активен - уменьшаем урон
         let finalDamage = amount;
         if (this.shieldActive && mousePressed) {
             finalDamage = amount * (1 - this.shieldDamageReduction);
-            // Дополнительная трата энергии при блокировании урона
             this.energy -= amount * 5;
             if (this.energy < 0) {
                 this.energy = 0;
@@ -444,6 +462,8 @@ class Player {
     respawn() {
         this.x = Math.random() * (MAP_WIDTH - 2 * this.radius) + this.radius;
         this.y = Math.random() * (MAP_HEIGHT - 2 * this.radius) + this.radius;
+        this.targetX = this.x;
+        this.targetY = this.y;
         this.health = this.maxHealth;
         this.energy = this.maxEnergy;
         this.dead = false;
@@ -453,6 +473,13 @@ class Player {
             hideRespawnOverlay();
             hideShieldEffect();
         }
+    }
+    
+    // Для интерполяции удаленного игрока
+    setTargetPosition(x, y) {
+        this.targetX = x;
+        this.targetY = y;
+        this.lastUpdateTime = Date.now();
     }
 }
 
@@ -484,9 +511,47 @@ class Bullet {
         ctx.arc(this.x - camera.x, this.y - camera.y, this.radius, 0, 2 * Math.PI);
         ctx.fill();
     }
+    
+    // Отражение снаряда
+    reflect(shieldCenterX, shieldCenterY) {
+        // Вектор от центра щита к пуле
+        const dx = this.x - shieldCenterX;
+        const dy = this.y - shieldCenterY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance > 0) {
+            // Нормаль к поверхности щита (от центра щита к пуле)
+            const nx = dx / distance;
+            const ny = dy / distance;
+            
+            // Вектор скорости пули
+            const vx = Math.cos(this.angle) * this.speed;
+            const vy = Math.sin(this.angle) * this.speed;
+            
+            // Скалярное произведение
+            const dot = vx * nx + vy * ny;
+            
+            // Отраженный вектор
+            const rx = vx - 2 * dot * nx;
+            const ry = vy - 2 * dot * ny;
+            
+            // Новый угол
+            this.angle = Math.atan2(ry, rx);
+            
+            // Немного увеличиваем скорость после отражения
+            this.speed *= 1.2;
+            
+            // Меняем цвет отраженной пули
+            this.color = "#00ffff";
+            
+            return true;
+        }
+        return false;
+    }
 }
 
 let camera = { x: 0, y: 0 };
+let cameraSmoothness = 0.1; // Плавность камеры (меньше = плавнее)
 
 function generateRoomCode() {
     return (Math.floor(1000 + Math.random() * 9000)).toString();
@@ -599,7 +664,8 @@ function sendData() {
                 dead: localPlayer.dead,
                 id: localPlayer.id,
                 energy: localPlayer.energy,
-                shieldActive: localPlayer.shieldActive
+                shieldActive: localPlayer.shieldActive,
+                timestamp: Date.now()
             },
             bullets: localPlayer.bullets.map(b => ({
                 x: b.x,
@@ -617,13 +683,14 @@ function handleData(d) {
     
     if (d.player) {
         remotePlayer.id = d.player.id;
-        remotePlayer.x = d.player.x;
-        remotePlayer.y = d.player.y;
-        remotePlayer.angle = d.player.angle;
         remotePlayer.health = d.player.health;
         remotePlayer.dead = d.player.dead;
         remotePlayer.energy = d.player.energy;
         remotePlayer.shieldActive = d.player.shieldActive;
+        remotePlayer.angle = d.player.angle;
+        
+        // Устанавливаем целевую позицию для интерполяции
+        remotePlayer.setTargetPosition(d.player.x, d.player.y);
     }
     
     if (d.bullets) {
@@ -641,6 +708,8 @@ function handleData(d) {
 }
 
 let lastTime = 0;
+let lastSendTime = 0;
+const SEND_INTERVAL = 1000 / 30; // 30 FPS для отправки данных
 
 function update(t = 0) {
     const dt = (t - lastTime) / 1000;
@@ -651,11 +720,27 @@ function update(t = 0) {
     
     captureZones.forEach(z => z.update(dt));
     
-    // Проверка столкновений пуль
+    // Проверка столкновений пуль с игроками и отражение от щитов
     if (localPlayer && remotePlayer) {
+        // Проверка пуль локального игрока
         localPlayer.bullets.forEach(b => {
             if (!b.destroyed && !remotePlayer.dead) {
                 const dist = Math.hypot(b.x - remotePlayer.x, b.y - remotePlayer.y);
+                
+                // Сначала проверяем отражение от щита
+                if (remotePlayer.shieldActive && dist < remotePlayer.shieldRadius + b.radius) {
+                    // Пытаемся отразить пулю
+                    if (b.reflect(remotePlayer.x, remotePlayer.y)) {
+                        // Меняем владельца отраженной пули
+                        b.ownerId = remotePlayer.id;
+                        b.color = remotePlayer.color;
+                        // Добавляем эффект отражения
+                        showShieldReflectEffect();
+                        return; // Пуля отражена, не наносим урон
+                    }
+                }
+                
+                // Если щита нет или отражение не удалось, проверяем столкновение с кораблем
                 if (dist < remotePlayer.radius + b.radius) {
                     b.destroyed = true;
                     remotePlayer.takeDamage(20);
@@ -663,9 +748,21 @@ function update(t = 0) {
             }
         });
         
+        // Проверка пуль удаленного игрока
         remotePlayer.bullets.forEach(b => {
             if (!b.destroyed && !localPlayer.dead) {
                 const dist = Math.hypot(b.x - localPlayer.x, b.y - localPlayer.y);
+                
+                // Проверяем отражение от щита
+                if (localPlayer.shieldActive && mousePressed && dist < localPlayer.shieldRadius + b.radius) {
+                    if (b.reflect(localPlayer.x, localPlayer.y)) {
+                        b.ownerId = localPlayer.id;
+                        b.color = localPlayer.color;
+                        showShieldReflectEffect();
+                        return;
+                    }
+                }
+                
                 if (dist < localPlayer.radius + b.radius) {
                     b.destroyed = true;
                     localPlayer.takeDamage(20);
@@ -674,15 +771,22 @@ function update(t = 0) {
         });
     }
     
-    // Обновление камеры
+    // Плавное обновление камеры
     if (localPlayer) {
-        const tx = localPlayer.x - canvas.width / 2,
-              ty = localPlayer.y - canvas.height / 2;
-        camera.x += 0.1 * (tx - camera.x);
-        camera.y += 0.1 * (ty - camera.y);
+        const targetX = localPlayer.x - canvas.width / 2;
+        const targetY = localPlayer.y - canvas.height / 2;
+        
+        // Плавное движение камеры с учетом dt
+        camera.x += (targetX - camera.x) * cameraSmoothness * dt * 60;
+        camera.y += (targetY - camera.y) * cameraSmoothness * dt * 60;
     }
     
-    sendData();
+    // Отправляем данные с фиксированным интервалом для стабильности
+    if (t - lastSendTime > SEND_INTERVAL) {
+        sendData();
+        lastSendTime = t;
+    }
+    
     draw();
     requestAnimationFrame(update);
 }
@@ -700,10 +804,7 @@ function draw() {
         ctx.fill();
     });
     
-    // Рисуем зоны захвата
     captureZones.forEach(z => z.draw(ctx, camera));
-    
-    // Рисуем игроков
     remotePlayer && remotePlayer.draw(ctx, camera);
     localPlayer && localPlayer.draw(ctx, camera);
     
@@ -713,7 +814,6 @@ function draw() {
 function drawMiniMap() {
     miniCtx.clearRect(0, 0, miniMap.width, miniMap.height);
     
-    // Звёзды на мини-карте
     stars.forEach(s => {
         miniCtx.fillStyle = "white";
         miniCtx.beginPath();
@@ -721,7 +821,6 @@ function drawMiniMap() {
         miniCtx.fill();
     });
     
-    // Зоны захвата на мини-карте
     captureZones.forEach(z => {
         miniCtx.fillStyle = (z.capturingPlayerId === localPlayer?.id) ? "cyan" :
                            (z.capturingPlayerId === remotePlayer?.id) ? "orange" : "gray";
@@ -732,7 +831,6 @@ function drawMiniMap() {
         miniCtx.globalAlpha = 1;
     });
     
-    // Игроки на мини-карте
     if (localPlayer) {
         miniCtx.fillStyle = "cyan";
         miniCtx.beginPath();
@@ -791,6 +889,13 @@ function showShieldEffect() {
     shieldEffect.style.background = "rgba(0,255,255,.1)";
 }
 
+function showShieldReflectEffect() {
+    shieldEffect.style.background = "rgba(0,255,255,.3)";
+    setTimeout(() => {
+        shieldEffect.style.background = "rgba(0,255,255,.1)";
+    }, 50);
+}
+
 function hideShieldEffect() {
     shieldEffect.style.background = "rgba(0,255,255,0)";
 }
@@ -800,7 +905,6 @@ function updateEnergyUI(percentage) {
     energyFill.style.width = `${percent}%`;
     energyText.textContent = `Энергия: ${percent}%`;
     
-    // Меняем цвет при низкой энергии
     if (percent < 30) {
         energyFill.style.background = "linear-gradient(90deg, #ff4444, #ffaa00)";
         energyText.style.color = "#ff4444";
