@@ -8,23 +8,64 @@
     margin: 0; padding: 0; overflow: hidden; height: 100%; background: #000; color: white; font-family: monospace;
   }
   #ui {
-    position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
-    color: white;
+    position: fixed; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.85);
+    padding: 25px 40px;
+    border-radius: 12px;
+    box-shadow: 0 0 20px cyan;
+    width: 320px;
     user-select: none;
     z-index: 10;
-    background: rgba(0,0,0,0.5);
-    padding: 8px 12px;
-    border-radius: 8px;
   }
-  #ui label, #ui input, #ui button {
+  #ui h1 {
+    margin: 0 0 20px 0;
+    font-size: 24px;
+    text-align: center;
+    color: cyan;
+  }
+  #ui label {
+    display: block;
+    margin-bottom: 8px;
     font-size: 14px;
   }
-  #ui input {
-    width: 150px;
+  #myRoomCode {
+    font-weight: bold;
+    font-size: 20px;
+    color: lime;
+    margin-bottom: 10px;
+    user-select: all;
+    cursor: pointer;
   }
-  #game {
-    display: block;
-    background: #000;
+  #connectId {
+    width: 100%;
+    padding: 8px;
+    font-size: 16px;
+    border-radius: 6px;
+    border: none;
+    margin-bottom: 15px;
+  }
+  button {
+    width: 100%;
+    padding: 10px;
+    font-size: 16px;
+    border-radius: 6px;
+    border: none;
+    background: cyan;
+    color: black;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.3s ease;
+  }
+  button:hover {
+    background: #00b3b3;
+  }
+  #statusMsg {
+    margin-top: 15px;
+    font-size: 14px;
+    text-align: center;
+    color: yellow;
+    min-height: 18px;
   }
   #respawnOverlay {
     position: fixed;
@@ -65,16 +106,31 @@
     z-index: 25;
     transition: background 0.3s ease-out;
   }
+  canvas#game {
+    display: block;
+    background: #000;
+  }
 </style>
 </head>
 <body>
 
 <div id="ui">
-  <label>Версия: 1.0.1</label><br/>
-  <label>Ваш ID: <span id="myId">...</span></label>
-  <button id="copyBtn">Скопировать</button><br/>
-  <label>Подключиться к ID: <input type="text" id="connectId" autocomplete="off" /></label>
+  <h1>Космические корабли</h1>
+  <label>Ваш румкод (комната):</label>
+  <div id="myRoomCode" title="Нажмите, чтобы скопировать"></div>
+  <button id="copyBtn">Скопировать румкод</button>
+  
+  <hr style="margin:20px 0; border-color: #444;">
+  
+  <label for="connectId">Подключиться к румкоду друга:</label>
+  <input type="text" id="connectId" maxlength="4" placeholder="Введите 4 цифры" autocomplete="off" />
   <button id="connectBtn">Подключиться</button>
+  
+  <div id="statusMsg"></div>
+  
+  <div style="margin-top: 15px; font-size: 12px; color: #555; text-align: center;">
+    Версия: 1.0.0
+  </div>
 </div>
 
 <div id="respawnOverlay">
@@ -95,10 +151,11 @@ const ctx = canvas.getContext('2d');
 const miniMap = document.getElementById('miniMap');
 const miniCtx = miniMap.getContext('2d');
 
-const myIdSpan = document.getElementById('myId');
+const myRoomCodeDiv = document.getElementById('myRoomCode');
 const copyBtn = document.getElementById('copyBtn');
 const connectInput = document.getElementById('connectId');
 const connectBtn = document.getElementById('connectBtn');
+const statusMsg = document.getElementById('statusMsg');
 
 const respawnOverlay = document.getElementById('respawnOverlay');
 const respawnTimerSpan = document.getElementById('respawnTimer');
@@ -135,18 +192,8 @@ function generateStars() {
 }
 generateStars();
 
-let peer = new Peer({
-  config: {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      {
-  urls: 'turn:turn.anyfirewall.com:443?transport=tcp',
-  username: 'webrtc',
-  credential: 'webrtc'
-}
-    ]
-  }
-});
+// PeerJS и игроки
+let peer;
 let conn;
 
 let localPlayer = null;
@@ -155,39 +202,36 @@ let remotePlayer = null;
 let keysPressed = {};
 let mousePos = { x: 0, y: 0 };
 
-// Захват зоны
+// --- Захват зоны (оставил без изменений) ---
 class CaptureZone {
   constructor(x, y, radius, id) {
     this.x = x;
     this.y = y;
     this.radius = radius;
     this.id = id;
-    this.capturingPlayerId = null; // кто захватил
-    this.captureProgress = 0; // от 0 до 1
-    this.capturingCandidate = null; // кто сейчас в зоне
+    this.capturingPlayerId = null;
+    this.captureProgress = 0;
+    this.capturingCandidate = null;
   }
-  
   update(dt) {
     if(!localPlayer) return;
     if(localPlayer.dead) {
       this.capturingCandidate = null;
-      this.captureProgress = Math.max(0, this.captureProgress - dt * 0.5); // сброс при смерти
+      this.captureProgress = Math.max(0, this.captureProgress - dt * 0.5);
       return;
     }
-    // Проверяем, находится ли игрок в зоне
     const dist = Math.hypot(localPlayer.x - this.x, localPlayer.y - this.y);
     if(dist < this.radius) {
       if(this.capturingCandidate === localPlayer.id || this.capturingCandidate === null) {
         this.capturingCandidate = localPlayer.id;
         if(this.capturingPlayerId !== localPlayer.id) {
-          this.captureProgress += dt * 0.5; // захват за 2 секунды
+          this.captureProgress += dt * 0.5;
           if(this.captureProgress >= 1) {
             this.captureProgress = 1;
             this.capturingPlayerId = localPlayer.id;
           }
         }
       } else {
-        // другой игрок - сбрасываем
         this.captureProgress = Math.max(0, this.captureProgress - dt * 0.5);
       }
     } else {
@@ -195,9 +239,7 @@ class CaptureZone {
       this.captureProgress = Math.max(0, this.captureProgress - dt * 0.5);
     }
   }
-  
   draw(ctx, camera) {
-    // Зона полупрозрачная, цвет в зависимости от захвата
     ctx.save();
     ctx.globalAlpha = 0.2 + 0.4 * this.captureProgress;
     if(this.capturingPlayerId === localPlayer?.id) {
@@ -211,7 +253,6 @@ class CaptureZone {
     ctx.arc(this.x - camera.x, this.y - camera.y, this.radius, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = 1;
-    // Прогресс захвата полоской
     if(this.captureProgress > 0 && this.capturingPlayerId !== localPlayer?.id) {
       const barWidth = 80;
       const barHeight = 6;
@@ -224,7 +265,6 @@ class CaptureZone {
     }
     ctx.restore();
   }
-  
   serialize() {
     return {
       id: this.id,
@@ -232,7 +272,6 @@ class CaptureZone {
       captureProgress: this.captureProgress
     };
   }
-  
   deserialize(data) {
     this.capturingPlayerId = data.capturingPlayerId;
     this.captureProgress = data.captureProgress;
@@ -245,6 +284,7 @@ const captureZones = [
   new CaptureZone(1000, 1500, 120, 'zone3'),
 ];
 
+// Игрок и пули
 class Player {
   constructor(id, color) {
     this.id = id;
@@ -259,7 +299,6 @@ class Player {
     this.dead = false;
     this.respawnCooldown = 0;
   }
-  
   update(dt) {
     if(this.dead) {
       this.respawnCooldown -= dt;
@@ -271,41 +310,33 @@ class Player {
       }
       return;
     }
-    
     let moveX = 0, moveY = 0;
     if(keysPressed['w']) moveY -= 1;
     if(keysPressed['s']) moveY += 1;
     if(keysPressed['a']) moveX -= 1;
     if(keysPressed['d']) moveX += 1;
-    
     let len = Math.hypot(moveX, moveY);
     if(len > 0) {
       moveX /= len;
       moveY /= len;
     }
-    
     const MOVE_SPEED = 300;
     this.x += moveX * MOVE_SPEED * dt;
     this.y += moveY * MOVE_SPEED * dt;
-    
     this.x = Math.max(this.radius, Math.min(MAP_WIDTH - this.radius, this.x));
     this.y = Math.max(this.radius, Math.min(MAP_HEIGHT - this.radius, this.y));
-    
     if(localPlayer === this) {
       const dx = mousePos.x + camera.x - this.x;
       const dy = mousePos.y + camera.y - this.y;
       this.angle = Math.atan2(dy, dx);
     }
-    
     this.bullets.forEach(b => b.update(dt));
     this.bullets = this.bullets.filter(b => !b.destroyed);
   }
-  
   draw(ctx, camera) {
     ctx.save();
     ctx.translate(this.x - camera.x, this.y - camera.y);
     ctx.rotate(this.angle);
-    
     if(this.dead) {
       ctx.globalAlpha = 0.4;
     }
@@ -318,15 +349,11 @@ class Player {
     ctx.fill();
     ctx.globalAlpha = 1;
     ctx.restore();
-    
     this.bullets.forEach(b => b.draw(ctx, camera));
-    
-    // Полоса здоровья
     const healthBarWidth = 40;
     const healthBarHeight = 6;
     const x = this.x - camera.x - healthBarWidth / 2;
     const y = this.y - camera.y - this.radius - 15;
-    
     ctx.fillStyle = 'gray';
     ctx.fillRect(x, y, healthBarWidth, healthBarHeight);
     ctx.fillStyle = 'lime';
@@ -334,7 +361,6 @@ class Player {
     ctx.strokeStyle = 'black';
     ctx.strokeRect(x, y, healthBarWidth, healthBarHeight);
   }
-  
   shoot() {
     if(this.dead) return;
     const speed = 600;
@@ -343,7 +369,6 @@ class Player {
     const bullet = new Bullet(bulletX, bulletY, this.angle, speed, this.color, this.id);
     this.bullets.push(bullet);
   }
-  
   takeDamage(amount) {
     if(this.dead) return;
     this.health -= amount;
@@ -357,7 +382,6 @@ class Player {
       }
     }
   }
-  
   respawn() {
     this.x = Math.random() * (MAP_WIDTH - 2 * this.radius) + this.radius;
     this.y = Math.random() * (MAP_HEIGHT - 2 * this.radius) + this.radius;
@@ -380,7 +404,6 @@ class Bullet {
     this.destroyed = false;
     this.ownerId = ownerId;
   }
-  
   update(dt) {
     this.x += Math.cos(this.angle) * this.speed * dt;
     this.y += Math.sin(this.angle) * this.speed * dt;
@@ -388,7 +411,6 @@ class Bullet {
       this.destroyed = true;
     }
   }
-  
   draw(ctx, camera) {
     ctx.fillStyle = this.color;
     ctx.beginPath();
@@ -400,249 +422,322 @@ class Bullet {
 let camera = { x: 0, y: 0 };
 let cameraVelocity = { x: 0, y: 0 };
 
-peer.on('open', id => {
-  myIdSpan.textContent = id;
-  localPlayer = new Player(id, 'cyan');
-  remotePlayer = new Player(null, 'orange');
-  console.log('Мой ID:', id);
-});
+// --------- Новый код: генерация и работа с 4-значным румкодом -----------
 
-connectBtn.onclick = () => {
-  const remoteId = connectInput.value.trim();
-  if(!remoteId) return alert('Введите ID для подключения');
-  conn = peer.connect(remoteId);
-  setupConnection();
+function generateRoomCode() {
+  return Math.floor(1000 + Math.random() * 9000).toString();
+}
+
+function isValidRoomCode(code) {
+  return /^\d{4}$/.test(code);
+}
+
+let myRoomCode = generateRoomCode();
+myRoomCodeDiv.textContent = myRoomCode;
+
+copyBtn.onclick = () => {
+  navigator.clipboard.writeText(myRoomCode).then(() => {
+    alert('Румкод скопирован в буфер обмена!');
+  });
 };
 
-peer.on('connection', connection => {
-  conn = connection;
+connectBtn.onclick = () => {
+  const remoteCode = connectInput.value.trim();
+  if(!isValidRoomCode(remoteCode)) {
+    statusMsg.textContent = "Введите корректный 4-значный румкод!";
+    return;
+  }
+  if(remoteCode === myRoomCode) {
+    statusMsg.textContent = "Нельзя подключаться к своему румкоду!";
+    return;
+  }
+  statusMsg.textContent = "Подключение...";
+  connectToPeer(remoteCode);
+};
+
+// Создаем Peer с нашим румкодом
+function createPeer() {
+  peer = new Peer(myRoomCode, {
+    config: {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        {
+          urls: 'turn:turn.anyfirewall.com:443?transport=tcp',
+          username: 'webrtc',
+          credential: 'webrtc'
+        }
+      ]
+    }
+  });
+
+  peer.on('open', id => {
+    console.log('Peer открыт с ID:', id);
+    localPlayer = new Player(id, 'cyan');
+    remotePlayer = new Player(null, 'orange');
+  });
+
+  peer.on('connection', connection => {
+    if(conn) {
+      // уже есть подключение, отвергаем новые
+      connection.close();
+      return;
+    }
+    conn = connection;
+    setupConnection();
+  });
+
+  peer.on('error', err => {
+    console.error('Peer error:', err);
+    statusMsg.textContent = 'Ошибка Peer: ' + err;
+  });
+}
+
+// Подключаемся к другому пиру
+function connectToPeer(remoteId) {
+  if(conn) {
+    conn.close();
+    conn = null;
+  }
+  if(!peer || peer.disconnected) {
+    statusMsg.textContent = 'Peer не готов. Перезагрузите страницу.';
+    return;
+  }
+  conn = peer.connect(remoteId);
   setupConnection();
-});
+}
 
 function setupConnection() {
   conn.on('open', () => {
     console.log('Соединение открыто');
-    startGame();
+    statusMsg.textContent = 'Соединение установлено!';
+    document.getElementById('ui').style.display = 'none'; // <-- Скрываем меню после подключения
   });
+
   conn.on('data', data => {
-    if(data.type === 'state') {
-      if(!remotePlayer.id) remotePlayer.id = data.id;
-      remotePlayer.x = data.x;
-      remotePlayer.y = data.y;
-      remotePlayer.angle = data.angle;
-      remotePlayer.health = data.health;
-      remotePlayer.dead = data.dead;
-      remotePlayer.bullets = data.bullets.map(b => new Bullet(b.x, b.y, b.angle, b.speed, remotePlayer.color, b.ownerId));
-      // Захват зон
-      if(data.captureZones) {
-        data.captureZones.forEach(z => {
-          const zone = captureZones.find(cz => cz.id === z.id);
-          if(zone) zone.deserialize(z);
-        });
-      }
-    } else if(data.type === 'shoot') {
-      if(remotePlayer.id === data.id) {
-        remotePlayer.shoot();
-      }
-    } else if(data.type === 'hit') {
-      if(remotePlayer.id === data.id) {
-        remotePlayer.takeDamage(data.amount);
-      }
-    }
+    // Обработка данных
+    handleData(data);
   });
+
   conn.on('close', () => {
-    alert('Соединение закрыто');
+    console.log('Соединение закрыто');
+    statusMsg.textContent = 'Соединение закрыто.';
+    document.getElementById('ui').style.display = 'block'; // Показываем меню снова
+    conn = null;
+  });
+
+  conn.on('error', err => {
+    console.error('Ошибка соединения:', err);
+    statusMsg.textContent = 'Ошибка соединения: ' + err;
   });
 }
 
-function sendState() {
-  if(conn && conn.open) {
-    conn.send({
-      type: 'state',
-      id: localPlayer.id,
-      x: localPlayer.x,
-      y: localPlayer.y,
-      angle: localPlayer.angle,
-      health: localPlayer.health,
-      dead: localPlayer.dead,
-      bullets: localPlayer.bullets.map(b => ({x: b.x, y: b.y, angle: b.angle, speed: b.speed, ownerId: b.ownerId})),
+// Отправляем данные (игрока, пули, зоны захвата)
+function sendData() {
+  if(conn && conn.open && localPlayer) {
+    const data = {
+      player: {
+        x: localPlayer.x,
+        y: localPlayer.y,
+        angle: localPlayer.angle,
+        health: localPlayer.health,
+        dead: localPlayer.dead,
+        id: localPlayer.id
+      },
+      bullets: localPlayer.bullets.map(b => ({
+        x: b.x,
+        y: b.y,
+        angle: b.angle,
+        ownerId: b.ownerId
+      })),
       captureZones: captureZones.map(z => z.serialize())
+    };
+    conn.send(data);
+  }
+}
+
+// Получаем данные от удаленного игрока
+function handleData(data) {
+  if(!remotePlayer) return;
+  if(data.player) {
+    remotePlayer.id = data.player.id;
+    remotePlayer.x = data.player.x;
+    remotePlayer.y = data.player.y;
+    remotePlayer.angle = data.player.angle;
+    remotePlayer.health = data.player.health;
+    remotePlayer.dead = data.player.dead;
+  }
+  if(data.bullets) {
+    remotePlayer.bullets = data.bullets.map(b => {
+      const bullet = new Bullet(b.x, b.y, b.angle, 600, 'orange', b.ownerId);
+      return bullet;
+    });
+  }
+  if(data.captureZones) {
+    data.captureZones.forEach(zData => {
+      const zone = captureZones.find(z => z.id === zData.id);
+      if(zone) zone.deserialize(zData);
     });
   }
 }
 
-function sendShoot() {
-  if(conn && conn.open) {
-    conn.send({ type: 'shoot', id: localPlayer.id });
-  }
-}
-
-function sendHit(id, amount) {
-  if(conn && conn.open) {
-    conn.send({ type: 'hit', id, amount });
-  }
-}
-
-function updateCamera(dt) {
-  // Плавное движение камеры с инерцией
-  const targetX = localPlayer.x - canvas.width / 2;
-  const targetY = localPlayer.y - canvas.height / 2;
-  
-  const smoothFactor = 0.1;
-  cameraVelocity.x += (targetX - camera.x) * smoothFactor;
-  cameraVelocity.y += (targetY - camera.y) * smoothFactor;
-  
-  // Затухание инерции
-  cameraVelocity.x *= 0.85;
-  cameraVelocity.y *= 0.85;
-  
-  camera.x += cameraVelocity.x;
-  camera.y += cameraVelocity.y;
-  
-  camera.x = Math.max(0, Math.min(MAP_WIDTH - canvas.width, camera.x));
-  camera.y = Math.max(0, Math.min(MAP_HEIGHT - canvas.height, camera.y));
-}
+// -------------------- Игровой цикл ---------------------
 
 let lastTime = 0;
-let hitEffectTimeout = null;
 
-function gameLoop(timestamp) {
-  if(!lastTime) lastTime = timestamp;
-  const dt = (timestamp - lastTime) / 1000;
-  lastTime = timestamp;
-  
-  // Мерцание звезд
-  stars.forEach(s => {
-    s.brightness = s.baseBrightness + Math.sin(timestamp / 300 + s.phase) * 0.5;
-  });
-  
-  if(localPlayer) {
-    localPlayer.update(dt);
-    captureZones.forEach(z => z.update(dt));
-    updateCamera(dt);
-    
-    // Обработка выстрелов и попаданий
-    // Простая проверка коллизий пуль и игроков
-    localPlayer.bullets.forEach(bullet => {
-      if(bullet.ownerId === localPlayer.id) {
-        if(remotePlayer && !remotePlayer.dead) {
-          const dist = Math.hypot(bullet.x - remotePlayer.x, bullet.y - remotePlayer.y);
-          if(dist < remotePlayer.radius + bullet.radius) {
-            remotePlayer.takeDamage(20);
-            sendHit(remotePlayer.id, 20);
-            bullet.destroyed = true;
-          }
+function update(time = 0) {
+  const dt = (time - lastTime) / 1000;
+  lastTime = time;
+
+  if(localPlayer) localPlayer.update(dt);
+  if(remotePlayer) remotePlayer.update(dt);
+
+  captureZones.forEach(z => z.update(dt));
+
+  if(localPlayer && remotePlayer) {
+    // Проверка попаданий пуль в игроков
+    localPlayer.bullets.forEach(b => {
+      if(!b.destroyed && !remotePlayer.dead) {
+        const dist = Math.hypot(b.x - remotePlayer.x, b.y - remotePlayer.y);
+        if(dist < remotePlayer.radius + b.radius) {
+          b.destroyed = true;
+          remotePlayer.takeDamage(20);
         }
       }
     });
-    
-    remotePlayer.bullets.forEach(bullet => {
-      if(bullet.ownerId === remotePlayer.id) {
-        if(localPlayer && !localPlayer.dead) {
-          const dist = Math.hypot(bullet.x - localPlayer.x, bullet.y - localPlayer.y);
-          if(dist < localPlayer.radius + bullet.radius) {
-            localPlayer.takeDamage(20);
-            sendHit(localPlayer.id, 20);
-            bullet.destroyed = true;
-          }
+    remotePlayer.bullets.forEach(b => {
+      if(!b.destroyed && !localPlayer.dead) {
+        const dist = Math.hypot(b.x - localPlayer.x, b.y - localPlayer.y);
+        if(dist < localPlayer.radius + b.radius) {
+          b.destroyed = true;
+          localPlayer.takeDamage(20);
         }
       }
     });
-    
-    sendState();
   }
-  
-  // Рисуем звезды
-  ctx.fillStyle = 'black';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  stars.forEach(s => {
-    const brightness = Math.min(Math.max(s.brightness, 0), 1);
-    ctx.fillStyle = `rgba(255,255,255,${brightness})`;
+
+  // Камера плавно следует за локальным игроком
+  if(localPlayer) {
+    const targetX = localPlayer.x - canvas.width / 2;
+    const targetY = localPlayer.y - canvas.height / 2;
+    camera.x += (targetX - camera.x) * 0.1;
+    camera.y += (targetY - camera.y) * 0.1;
+  }
+
+  sendData();
+  draw();
+
+  requestAnimationFrame(update);
+}
+
+// ----------------- Отрисовка --------------------------
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Звезды с мерцанием
+  const time = Date.now() / 1000;
+  stars.forEach(star => {
+    star.brightness = star.baseBrightness + Math.sin(time * 3 + star.phase) * 0.3;
+    ctx.fillStyle = `rgba(255,255,255,${star.brightness.toFixed(2)})`;
     ctx.beginPath();
-    ctx.arc(s.x - camera.x, s.y - camera.y, s.radius, 0, Math.PI*2);
+    ctx.arc(star.x - camera.x, star.y - camera.y, star.radius, 0, Math.PI * 2);
     ctx.fill();
   });
-  
-  // Рисуем зоны захвата
-  captureZones.forEach(z => z.draw(ctx, camera));
-  
-  if(localPlayer) localPlayer.draw(ctx, camera);
+
+  // Зоны захвата
+  captureZones.forEach(zone => zone.draw(ctx, camera));
+
   if(remotePlayer) remotePlayer.draw(ctx, camera);
-  
-  // Мини-карта
-  miniCtx.fillStyle = 'black';
-  miniCtx.fillRect(0,0,miniMap.width, miniMap.height);
-  miniCtx.fillStyle = 'white';
-  stars.forEach(s => {
-    miniCtx.fillRect((s.x / MAP_WIDTH) * miniMap.width, (s.y / MAP_HEIGHT) * miniMap.height, 1, 1);
-  });
-  if(localPlayer) {
-    miniCtx.fillStyle = localPlayer.color;
+  if(localPlayer) localPlayer.draw(ctx, camera);
+
+  // Миникарта
+  drawMiniMap();
+}
+
+function drawMiniMap() {
+  miniCtx.clearRect(0, 0, miniMap.width, miniMap.height);
+  // Звезды на миникарте
+  stars.forEach(star => {
+    miniCtx.fillStyle = 'white';
     miniCtx.beginPath();
-    miniCtx.arc((localPlayer.x / MAP_WIDTH) * miniMap.width, (localPlayer.y / MAP_HEIGHT) * miniMap.height, 6, 0, Math.PI * 2);
+    miniCtx.arc((star.x / MAP_WIDTH) * miniMap.width, (star.y / MAP_HEIGHT) * miniMap.height, 1, 0, Math.PI * 2);
+    miniCtx.fill();
+  });
+  // Зоны захвата
+  captureZones.forEach(zone => {
+    miniCtx.fillStyle = (zone.capturingPlayerId === localPlayer?.id) ? 'cyan' :
+                        (zone.capturingPlayerId === remotePlayer?.id) ? 'orange' : 'gray';
+    miniCtx.globalAlpha = 0.5 + 0.5 * zone.captureProgress;
+    miniCtx.beginPath();
+    miniCtx.arc((zone.x / MAP_WIDTH) * miniMap.width, (zone.y / MAP_HEIGHT) * miniMap.height, zone.radius / 10, 0, Math.PI * 2);
+    miniCtx.fill();
+    miniCtx.globalAlpha = 1;
+  });
+
+  if(localPlayer) {
+    miniCtx.fillStyle = 'cyan';
+    miniCtx.beginPath();
+    miniCtx.arc((localPlayer.x / MAP_WIDTH) * miniMap.width, (localPlayer.y / MAP_HEIGHT) * miniMap.height, 5, 0, Math.PI * 2);
     miniCtx.fill();
   }
   if(remotePlayer) {
-    miniCtx.fillStyle = remotePlayer.color;
+    miniCtx.fillStyle = 'orange';
     miniCtx.beginPath();
-    miniCtx.arc((remotePlayer.x / MAP_WIDTH) * miniMap.width, (remotePlayer.y / MAP_HEIGHT) * miniMap.height, 6, 0, Math.PI * 2);
+    miniCtx.arc((remotePlayer.x / MAP_WIDTH) * miniMap.width, (remotePlayer.y / MAP_HEIGHT) * miniMap.height, 5, 0, Math.PI * 2);
     miniCtx.fill();
   }
-  
-  requestAnimationFrame(gameLoop);
 }
 
-function showHitEffect() {
-  hitEffect.style.background = 'rgba(255, 0, 0, 0.5)';
-  clearTimeout(hitEffectTimeout);
-  hitEffectTimeout = setTimeout(() => {
-    hitEffect.style.background = 'rgba(255, 0, 0, 0)';
-  }, 300);
-}
-
-function showRespawnOverlay() {
-  respawnOverlay.style.display = 'block';
-}
-
-function hideRespawnOverlay() {
-  respawnOverlay.style.display = 'none';
-}
-
-function updateRespawnOverlay(timeLeft) {
-  respawnTimerSpan.textContent = Math.ceil(timeLeft);
-}
+// ------------- События клавиатуры и мыши -------------
 
 window.addEventListener('keydown', e => {
   keysPressed[e.key.toLowerCase()] = true;
+  if(e.key === ' ') {
+    if(localPlayer && !localPlayer.dead) {
+      localPlayer.shoot();
+    }
+  }
 });
 
 window.addEventListener('keyup', e => {
   keysPressed[e.key.toLowerCase()] = false;
 });
 
-canvas.addEventListener('mousemove', e => {
+window.addEventListener('mousemove', e => {
   mousePos.x = e.clientX;
   mousePos.y = e.clientY;
 });
 
-canvas.addEventListener('mousedown', e => {
-  if(localPlayer && !localPlayer.dead) {
-    localPlayer.shoot();
-    sendShoot();
-  }
-});
+// ------------- Эффекты ------------------
 
-copyBtn.onclick = () => {
-  navigator.clipboard.writeText(myIdSpan.textContent).then(() => {
-    alert('ID скопирован');
-  });
-};
-
-function startGame() {
-  requestAnimationFrame(gameLoop);
+function showHitEffect() {
+  hitEffect.style.background = 'rgba(255,0,0,0.3)';
+  setTimeout(() => {
+    hitEffect.style.background = 'rgba(255,0,0,0)';
+  }, 100);
 }
 
-</script>
+function showRespawnOverlay() {
+  respawnOverlay.style.display = 'block';
+  respawnTimerSpan.textContent = '3';
+}
 
+function updateRespawnOverlay(timeLeft) {
+  if(timeLeft > 0) {
+    respawnTimerSpan.textContent = Math.ceil(timeLeft).toString();
+  } else {
+    respawnTimerSpan.textContent = '0';
+  }
+}
+
+function hideRespawnOverlay() {
+  respawnOverlay.style.display = 'none';
+}
+
+// ------------- Запуск -------------------
+
+createPeer();
+requestAnimationFrame(update);
+</script>
 </body>
 </html>
