@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <title>Heart Burst Tete</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@discord/embedded-app-sdk@1.5.1/dist/discord-sdk.umd.min.js"></script>
+
 <style>
     body {
         margin: 0;
@@ -15,7 +18,19 @@
         overflow: hidden;
     }
 
-    #container { position: relative; text-align: center; }
+    #container { 
+        position: relative; 
+        text-align: center; 
+    }
+
+    #avatar {
+        width: 120px;
+        height: 120px;
+        border-radius: 50%;
+        margin-bottom: 15px;
+        display: none;
+        border: 3px solid #5865F2;
+    }
 
     #img {
         height: 400px;
@@ -41,70 +56,54 @@
         100% { transform: translate(-50%, -120px) scale(0.6); opacity: 0; }
     }
 
-    #loginBtn {
-        padding: 10px 20px;
-        background: #5865F2;
-        color: white;
-        border: none;
-        border-radius: 8px;
-        cursor: pointer;
-        margin-bottom: 10px;
+    #counter { 
+        font-size: 22px; 
+        margin-top: 10px;
+        font-weight: bold; 
     }
-
-    #counter { font-size: 22px; margin-top: 10px; font-weight: bold; }
 </style>
 </head>
 <body>
 
 <div id="container">
 
-    <button id="loginBtn">Войти через Discord</button>
+    <img id="avatar" src="">
     <div id="userInfo"></div>
 
-    <img id="img"
-         src="https://ih1.redbubble.net/image.5018714309.4771/flat,750x,075,f-pad,750x1000,f8f8f8.jpg"
-         alt="teto">
-
+    <img id="img" src="https://ih1.redbubble.net/image.5018714309.4771/flat,750x,075,f-pad,750x1000,f8f8f8.jpg" alt="teto">
     <div id="counter">❤️ 0</div>
 </div>
 
+
 <script>
-/* ------------------------------- Discord OAuth ------------------------------- */
-const CLIENT_ID = "1441197732948869290";            // <--- ВСТАВЬ
-const REDIRECT_URI = "https://nosfty.github.io/";      // <--- ВСТАВЬ  
-// например: "https://your-site.com/"
+/* ------------------------- Discord Activities Auth ------------------------- */
 
-document.getElementById("loginBtn").onclick = () => {
-    const url =
-        `https://discord.com/oauth2/authorize?` +
-        `client_id=${CLIENT_ID}` +
-        `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-        `&response_type=token&scope=identify`;
+const discordSdk = new window.DiscordSDK();
 
-    window.location.href = url;
-};
+async function initDiscord() {
+    await discordSdk.ready();
 
-// Если пользователь вернулся после логина
-window.addEventListener("load", async () => {
-    if (window.location.hash.includes("access_token")) {
-        const params = new URLSearchParams(window.location.hash.substring(1));
-        const token = params.get("access_token");
+    // запрос разрешений у Discord
+    const { user } = await discordSdk.commands.authenticate();
 
-        const user = await fetch("https://discord.com/api/users/@me", {
-            headers: { Authorization: `Bearer ${token}` }
-        }).then(r => r.json());
+    console.log("User:", user);
 
-        document.getElementById("userInfo").textContent =
-            `Вы вошли как: ${user.username}#${user.discriminator}`;
+    document.getElementById("userInfo").textContent = `Вы вошли как: ${user.username}`;
 
-        localStorage.setItem("tete_user_id", user.id);
+    const avatarImg = document.getElementById("avatar");
+    avatarImg.src =
+        user.avatar
+            ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
+            : "https://cdn.discordapp.com/embed/avatars/0.png";
+    avatarImg.style.display = "block";
 
-        // загрузить индивидуальный счётчик
-        loadCounter();
-    } else {
-        loadCounter();
-    }
-});
+    localStorage.setItem("tete_user_id", user.id);
+
+    loadCounter();
+}
+
+initDiscord();
+
 
 /* ------------------------------- Счётчик ------------------------------- */
 const counterEl = document.getElementById("counter");
@@ -121,22 +120,20 @@ function saveCounter() {
     localStorage.setItem(`tete_counter_${user}`, counter);
 }
 
-/* ------------------------------- Сердечки + клики ------------------------------- */
+
+/* ----------------------------- Клики + сердечки ----------------------------- */
 const img = document.getElementById("img");
 const container = document.getElementById("container");
 
 img.addEventListener("click", () => {
 
-    // Увеличиваем счётчик
     counter++;
     counterEl.textContent = `❤️ ${counter}`;
     saveCounter();
 
-    // Анимация "squash"
     img.classList.add("squash");
     setTimeout(() => img.classList.remove("squash"), 250);
 
-    // Создание сердечка
     const heart = document.createElement("div");
     heart.textContent = "❤️";
     heart.className = "heart";
