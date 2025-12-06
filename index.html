@@ -4,13 +4,6 @@
 <meta charset="UTF-8">
 <title>Heart Burst Tete</title>
 
-<script type="module">
-    import { DiscordSDK } from "https://cdn.jsdelivr.net/npm/@discord/embedded-app-sdk/dist/discord-sdk.mjs";
-
-    const discordSdk = new DiscordSDK("YOUR_CLIENT_ID");
-
-    await discordSdk.ready();
-</script>
 <style>
     body {
         margin: 0;
@@ -23,10 +16,7 @@
         overflow: hidden;
     }
 
-    #container { 
-        position: relative; 
-        text-align: center; 
-    }
+    #container { position: relative; text-align: center; }
 
     #avatar {
         width: 120px;
@@ -61,10 +51,10 @@
         100% { transform: translate(-50%, -120px) scale(0.6); opacity: 0; }
     }
 
-    #counter { 
-        font-size: 22px; 
+    #counter {
+        font-size: 22px;
         margin-top: 10px;
-        font-weight: bold; 
+        font-weight: bold;
     }
 </style>
 </head>
@@ -76,62 +66,49 @@
     <div id="userInfo"></div>
 
     <img id="img" src="https://ih1.redbubble.net/image.5018714309.4771/flat,750x,075,f-pad,750x1000,f8f8f8.jpg" alt="teto">
+
     <div id="counter">❤️ 0</div>
+
 </div>
 
+<script type="module">
+import { DiscordSDK } from "https://cdn.jsdelivr.net/npm/@discord/embedded-app-sdk/dist/discord-sdk.mjs";
 
-<script>
-/* ------------------------- Discord Activities Auth ------------------------- */
+const CLIENT_ID = "1441197732948869290"; // <--- ВСТАВЬ СВОЙ
 
-const discordSdk = new window.DiscordSDK();
+const discordSdk = new DiscordSDK(CLIENT_ID);
 
-async function initDiscord() {
-    await discordSdk.ready();
+await discordSdk.ready();
 
-    // запрос разрешений у Discord
-    const { user } = await discordSdk.commands.authenticate();
+// Запрос прав
+const { user } = await discordSdk.commands.authenticate();
 
-    console.log("User:", user);
+// Показ профиля
+document.getElementById("userInfo").textContent = `Вы вошли как: ${user.username}`;
 
-    document.getElementById("userInfo").textContent = `Вы вошли как: ${user.username}`;
+const avatarImg = document.getElementById("avatar");
+avatarImg.src =
+    user.avatar
+        ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
+        : "https://cdn.discordapp.com/embed/avatars/0.png";
+avatarImg.style.display = "block";
 
-    const avatarImg = document.getElementById("avatar");
-    avatarImg.src =
-        user.avatar
-            ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
-            : "https://cdn.discordapp.com/embed/avatars/0.png";
-    avatarImg.style.display = "block";
+localStorage.setItem("tete_user_id", user.id);
 
-    localStorage.setItem("tete_user_id", user.id);
-
-    loadCounter();
-}
-
-initDiscord();
-
-
-/* ------------------------------- Счётчик ------------------------------- */
+/* ---------------- СЧЁТЧИК ---------------- */
 const counterEl = document.getElementById("counter");
-let counter = 0;
-
-function loadCounter() {
-    const user = localStorage.getItem("tete_user_id") || "guest";
-    counter = Number(localStorage.getItem(`tete_counter_${user}`) || 0);
-    counterEl.textContent = `❤️ ${counter}`;
-}
+let counter = Number(localStorage.getItem(`tete_counter_${user.id}`) || 0);
+counterEl.textContent = `❤️ ${counter}`;
 
 function saveCounter() {
-    const user = localStorage.getItem("tete_user_id") || "guest";
-    localStorage.setItem(`tete_counter_${user}`, counter);
+    localStorage.setItem(`tete_counter_${user.id}`, counter);
 }
 
-
-/* ----------------------------- Клики + сердечки ----------------------------- */
+/* ---------------- КЛИК + СЕРДЦА ---------------- */
 const img = document.getElementById("img");
 const container = document.getElementById("container");
 
 img.addEventListener("click", () => {
-
     counter++;
     counterEl.textContent = `❤️ ${counter}`;
     saveCounter();
@@ -156,4 +133,3 @@ img.addEventListener("click", () => {
 
 </body>
 </html>
-
