@@ -82,6 +82,27 @@ body {
             margin-top: 5px;
             font-weight: 400;
         }
+        /* Стили для маленького всплывающего сообщения */
+        #toast-notification {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-size: 1.2em;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+            pointer-events: none;
+            z-index: 1000;
+            min-width: 200px;
+            text-align: center;
+        }
+        #toast-notification.show {
+            opacity: 1;
+        }
     </style>
 </head>
 <body>
@@ -92,8 +113,10 @@ body {
         <div id="track-title"><span>Loading...</span></div>
         <div id="promotion-text">Music promoted by https://www.chosic.com/free-music/all/</div>
     </div>
+    
+    <div id="toast-notification"></div>
 
-    <script src="three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
     const STACK_SIZE = 4;
     const BLOCK_HEIGHT = 1;
@@ -104,7 +127,7 @@ body {
     const GRAVITY = 0.015; 
     const CAMERA_SMOOTHNESS = 0.05; 
     
-    const GLOBAL_VOLUME = 0.1; 
+    const GLOBAL_VOLUME = 0.03; 
     const ORTHO_D = 8;
     const FALLING_BLOCKS = [];
     
@@ -118,7 +141,7 @@ body {
     const TRACK_LIST_RAW = [
         'Missing You by Purrple Cat.mp3',
         'Memories Of Spring by Tokyo Music Walker.mp3',
-       
+        
     ];
 
     function processTrackName(fileName) {
@@ -166,6 +189,12 @@ body {
     let isFirstBlock = true;
     const INITIAL_Y_OFFSET = -20; 
     const scoreDisplay = document.getElementById('score-display');
+    
+    let _AM_STATE = false; 
+    let _AM_RUNNER = () => {}; 
+    let _SEQUENCE_COUNTER = 0; // Счетчик для последовательности
+    const _TARGET_PERFECT_COUNT = 4; // 4 идеальных попадания
+    const _OFF_CENTER_AMOUNT = 0.2; // Смещение на 0.2
 
     function initAudioContext() {
         if (!audioContext) {
@@ -266,6 +295,7 @@ body {
         direction = 1; 
         isGameOver = false; 
         isFirstBlock = true; 
+        _SEQUENCE_COUNTER = 0; // Сброс счетчика последовательности при рестарте
         
         updateScoreDisplay(); 
         
@@ -377,7 +407,7 @@ body {
 
     function addBaseBlock() {
         for(let i = stack.length - 1; i >= 0; i--) {
-              scene.remove(stack[i]);
+             scene.remove(stack[i]);
         }
         stack.length = 0;
         
@@ -459,7 +489,7 @@ body {
     function clickHandler() {
         if (!gameStarted) {
             if (movingBlock && !movingBlock.userData.isAppearing) {
-                        gameStarted = true;
+                         gameStarted = true;
             }
             startMusicOnInteraction();
             return;
@@ -468,6 +498,11 @@ body {
         if (!movingBlock || movingBlock.userData.isAppearing) return; 
         
         stopMovingBlock();
+        
+        // Увеличиваем счетчик только после успешной остановки блока
+        if (!isGameOver) {
+             _SEQUENCE_COUNTER++;
+        }
     }
 
     function stopMovingBlock() {
@@ -479,7 +514,8 @@ body {
         const axis = isMovingX ? 'x' : 'z';
         const size = isMovingX ? 'sizeX' : 'sizeZ';
         
-        const delta = currentBlock.position[axis] - lastBlock.position[axis];
+        let delta = currentBlock.position[axis] - lastBlock.position[axis];
+        
         const overlap = currentBlock.userData[size] - Math.abs(delta);
 
         if (overlap <= 0.05) { 
@@ -520,28 +556,32 @@ body {
         addRippleEffect(fixedBlock.position, blockProps.x, blockProps.z);
 
         const dropSize = currentBlock.userData[size] - overlap;
-        const dropCenter = lastBlock.position[axis] + Math.sign(delta) * (overlap + dropSize) / 2; 
         
-        const dropProps = {
-            x: isMovingX ? dropSize : lastBlock.userData.sizeX,
-            z: isMovingX ? lastBlock.userData.sizeZ : dropSize,
-            posX: isMovingX ? dropCenter : lastBlock.position.x,
-            posZ: isMovingX ? lastBlock.position.z : dropCenter,
-        };
+        // Создаем падающий блок, только если его размер больше минимального порога (решает проблему накопления ошибки)
+        if (dropSize > 0.001) {
+            const dropCenter = lastBlock.position[axis] + Math.sign(delta) * (overlap + dropSize) / 2; 
+            
+            const dropProps = {
+                x: isMovingX ? dropSize : lastBlock.userData.sizeX,
+                z: isMovingX ? lastBlock.userData.sizeZ : dropSize,
+                posX: isMovingX ? dropCenter : lastBlock.position.x,
+                posZ: isMovingX ? lastBlock.position.z : dropCenter,
+            };
 
-        const droppedBlock = createBlock(
-            dropProps.x,
-            dropProps.z,
-            BLOCK_HEIGHT,
-            new THREE.Vector3(dropProps.posX, stackY, dropProps.posZ),
-            blockColor
-        );
+            const droppedBlock = createBlock(
+                dropProps.x,
+                dropProps.z,
+                BLOCK_HEIGHT,
+                new THREE.Vector3(dropProps.posX, stackY, dropProps.posZ),
+                blockColor
+            );
 
-        droppedBlock.userData = { 
-            speedY: 0, 
-            removed: false,
-        };
-        FALLING_BLOCKS.push(droppedBlock);
+            droppedBlock.userData = { 
+                speedY: 0, 
+                removed: false,
+            };
+            FALLING_BLOCKS.push(droppedBlock);
+        }
         
         score++;
         updateScoreDisplay();
@@ -585,6 +625,122 @@ body {
             init(true); 
         }, 1500); 
     }
+    
+    //-----------------------------------------------
+    // НАЧАЛО МАКСИМАЛЬНО ОБФУСЦИРОВАННОЙ ЛОГИКИ
+    //-----------------------------------------------
+    (function() {
+        const _d = document.getElementById('toast-notification');
+        let _i = 0;
+        // Кодированный секретный код 'AUTO'
+        const _k = [65, 85, 84, 79]; 
+
+        // Зашифрованная функция отображения уведомлений
+        const _s = (f, t) => {
+            // Расшифровка сообщения
+            const v = f.split('').map(e => String.fromCharCode(e.charCodeAt(0) ^ 15)).join('');
+            _d.textContent = v;
+            _d.classList.add('show');
+            clearTimeout(_d._tm);
+            _d._tm = setTimeout(() => {
+                _d.classList.remove('show');
+            }, t || 1500);
+        };
+        
+        // Обфусцированные сообщения (ON/OFF)
+        const _m1 = '\zedWd^d^e^a^d^}^g^k^D^a^'; 
+        const _m2 = '\zedWd^d^e^a^d^}^g^k^D^c^k^D^e^d^}^k'; 
+
+        // Тоггл режима
+        const _t = () => {
+            _AM_STATE = !_AM_STATE;
+            if (_AM_STATE) {
+                _s(_m1, 1500);
+                if (!gameStarted && movingBlock && !movingBlock.userData.isAppearing) {
+                     gameStarted = true;
+                }
+            } else {
+                _s(_m2, 1500);
+            }
+            // Сбрасываем счетчик последовательности при каждом переключении
+            _SEQUENCE_COUNTER = 0; 
+        };
+
+        // Обработчик клавиш
+        const _h = (e) => {
+            const c = e.key.toUpperCase().charCodeAt(0);
+            if (c === _k[_i]) {
+                _i++;
+                if (_i === _k.length) {
+                    _t();
+                    _i = 0;
+                }
+            } else {
+                _i = (c === _k[0]) ? 1 : 0;
+            }
+        };
+        
+        document.addEventListener('keydown', _h, false);
+
+        // Функция идеального автоматического клика (Auto-Click Runner)
+        _AM_RUNNER = () => {
+            if (!_AM_STATE || !movingBlock || movingBlock.userData.isAppearing) return;
+            
+            const l = stack[stack.length - 1];
+            const c = movingBlock;
+            const a = c.userData.isMovingX ? 'x' : 'z';
+            
+            const p = l.position[a]; // Идеальная позиция
+            const currentSpeed = speed * (c.userData.direction); // Скорость и направление
+            
+            // Расстояние, которое блок пройдёт за 1 кадр (учитывая FRAME_TIME и множитель)
+            // Мы используем speed * FRAME_TIME, поскольку frameRateMultiplier уже учитывается в основном цикле.
+            // Но для точности лучше использовать скорость, которую использует основной цикл:
+            const frameMovement = Math.abs(currentSpeed * (FRAME_TIME / 1000) * 60); 
+
+            let targetOffset = 0; // Идеальное попадание
+            if (_SEQUENCE_COUNTER === _TARGET_PERFECT_COUNT) {
+                // Смещение на 5-м ходе
+                targetOffset = c.userData.direction * _OFF_CENTER_AMOUNT; 
+            } else if (_SEQUENCE_COUNTER > _TARGET_PERFECT_COUNT) {
+                 // Возврат к идеальному попаданию или стандартный авторежим
+                 // (очень близко, чтобы обеспечить почти 100% попадание)
+                 targetOffset = 0; 
+            }
+
+            const targetPosition = p + targetOffset;
+            
+            // Текущее смещение относительно цели
+            const currentDelta = c.position[a] - targetPosition;
+
+            // Смещение в следующем кадре
+            const nextPosition = c.position[a] + currentSpeed;
+            const nextDelta = nextPosition - targetPosition;
+
+            let shouldClick = false;
+
+            // Логика клика:
+            // 1. Блок прошел или пересечёт целевую позицию в следующем кадре (смена знака дельты)
+            // ИЛИ
+            // 2. Блок находится в пределах досягаемости одного кадра от цели
+            if (currentDelta * nextDelta <= 0) {
+                // Идеальный клик: Смена знака дельты (пересечение цели)
+                shouldClick = true;
+            } else if (Math.abs(currentDelta) < frameMovement * 1.5) {
+                // Достаточно близко, чтобы кликнуть, если промах был незначительным
+                // (страховка от ошибок float-precision)
+                shouldClick = true;
+            }
+
+            if (shouldClick) {
+                clickHandler(); 
+            }
+        };
+    })();
+    //-----------------------------------------------
+    // КОНЕЦ МАКСИМАЛЬНО ОБФУСЦИРОВАННОЙ ЛОГИКИ
+    //-----------------------------------------------
+
 
     function animate(time) {
         requestAnimationFrame(animate);
@@ -623,6 +779,7 @@ body {
             if (movingBlock.position.y >= movingBlock.userData.targetY) {
                 movingBlock.position.y = movingBlock.userData.targetY;
                 movingBlock.userData.isAppearing = false;
+                if (!gameStarted) gameStarted = true;
             }
         }
 
@@ -637,6 +794,8 @@ body {
             if (Math.abs(movingBlock.position[axis]) >= limit) {
                 movingBlock.userData.direction = -direction;
             }
+            
+            _AM_RUNNER();
         }
         
         for (let i = FALLING_BLOCKS.length - 1; i >= 0; i--) {
@@ -704,4 +863,3 @@ body {
 </script>
 </body>
 </html>
-
