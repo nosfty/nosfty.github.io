@@ -1,63 +1,706 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8" />
-  <title>Heart Burst Tete</title>
-  <style>
-    body {
-      margin: 0;
-      background: #f0f0f0;
-      height: 100vh;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      font-family: sans-serif;
-      overflow: hidden;
-    }
-    #container { position: relative; text-align: center; }
-    #avatar {
-      width: 120px;
-      height: 120px;
-      border-radius: 50%;
-      margin-bottom: 15px;
-      display: none;
-      border: 3px solid #5865F2;
-    }
-    #img {
-      height: 400px;
-      transition: transform 0.25s ease;
-      cursor: pointer;
-      display: block;
-      margin: auto;
-    }
-    .squash { transform: scaleY(0.2); }
-    .heart {
-      position: absolute;
-      font-size: 32px;
-      color: red;
-      opacity: 1;
-      animation: fly 1s ease-out forwards;
-      pointer-events: none;
-    }
-    @keyframes fly {
-      0% { transform: translate(-50%, 0) scale(1); opacity: 1; }
-      100% { transform: translate(-50%, -120px) scale(0.6); opacity: 0; }
-    }
-    #counter {
-      font-size: 22px;
-      margin-top: 10px;
-      font-weight: bold;
-    }
-  </style>
-  <script type="module" crossorigin src="/assets/index-Dxs2gViQ.js"></script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Three.js Stacking Game (Shadowed, Monochromatic & Music)</title>
+    <style>
+body {
+    margin: 0;
+    overflow: hidden;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #B0B5BA; 
+}
+        #score-display {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            text-align: center;
+            color: #5b5270;
+            font-size: 5em; 
+            font-weight: 900;
+            pointer-events: none;
+            z-index: 10;
+        }
+        #music-overlay {
+            position: absolute;
+            top: 0;
+            left: 20px; 
+            transform: translate(0, -100%); 
+            width: 80%;
+            max-width: 300px;
+            padding: 10px 15px;
+            background: rgba(255, 255, 255, 0.95); 
+            color: #333333; 
+            border-bottom-left-radius: 8px;
+            border-bottom-right-radius: 8px;
+            text-align: left; 
+            opacity: 0; 
+            transition: transform 0.5s ease-out, opacity 0.5s ease-out;
+            pointer-events: none;
+            z-index: 5;
+        }
+        #music-overlay.visible {
+            transform: translate(0, 0); 
+            opacity: 1;
+        }
+        #track-title {
+            font-size: 1.1em;
+            font-weight: 600;
+            margin-top: 5px;
+            white-space: nowrap;
+            overflow: hidden; 
+        }
+        #track-title span {
+            display: inline-block;
+            white-space: nowrap;
+            padding-right: 100%; 
+            transition: none; 
+        }
+        @keyframes scrollText {
+            0% {
+                transform: translateX(0);
+            }
+            100% {
+                transform: translateX(-100%); 
+            }
+        }
+        .scrolling span {
+             animation-name: scrollText;
+             animation-timing-function: linear;
+             animation-iteration-count: infinite;
+             animation-play-state: running;
+        }
+        #status-text {
+            font-size: 0.8em;
+            color: #4a90e2; 
+            text-transform: uppercase;
+        }
+        #promotion-text {
+            font-size: 0.7em;
+            color: #888888;
+            margin-top: 5px;
+            font-weight: 400;
+        }
+    </style>
 </head>
 <body>
-  <div id="container">
-    <img id="avatar" src="" alt="User Avatar" />
-    <div id="userInfo"></div>
-    <img id="img" src="https://ih1.redbubble.net/image.5018714309.4771/flat,750x,075,f-pad,750x1000,f8f8f8.jpg" alt="teto" />
-    <div id="counter">❤️ 0</div>
-  </div>
-
+    <div id="score-display">0</div>
+    
+    <div id="music-overlay">
+        <div id="status-text">▶️ Playing now (Soundtrack)</div>
+        <div id="track-title"><span>Loading...</span></div>
+        <div id="promotion-text">Music promoted by https://www.chosic.com/free-music/all/</div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+    const STACK_SIZE = 4;
+    const BLOCK_HEIGHT = 1;
+    
+    const INITIAL_SPEED = 0.04; 
+    const SPEED_INCREMENT = 0.005; 
+    const APPEAR_SPEED = 0.4;
+    const GRAVITY = 0.015; 
+    const CAMERA_SMOOTHNESS = 0.05; 
+    
+    const GLOBAL_VOLUME = 0.1; 
+    const ORTHO_D = 8;
+    const FALLING_BLOCKS = [];
+    
+    const RIPPLE_EFFECTS = []; 
+    const RIPPLE_DURATION = 300; 
+    const RIPPLE_MAX_SCALE = 6; 
+    const RIPPLE_COLOR = 0xffffff; 
+    
+    const successSound = new Audio('sound.mp3'); 
+    
+    const TRACK_LIST_RAW = [
+        'Transcendence Alexander by Nakarada.mp3',
+        'Memories Of Spring by Tokyo Music Walker.mp3',
+       
+    ];
+
+    function processTrackName(fileName) {
+        const nameWithoutExt = fileName.replace(/\.mp3$/, '');
+        const parts = nameWithoutExt.split(' by ');
+        
+        if (parts.length >= 2) {
+            const artist = parts[parts.length - 1].trim();
+            const title = parts.slice(0, -1).join(' by ').trim();
+            return `${title} - ${artist}`;
+        }
+        return nameWithoutExt; 
+    }
+
+    const TRACK_LIST = TRACK_LIST_RAW.map(fileName => ({
+        file: `music/${fileName}`, 
+        title: processTrackName(fileName)
+    }));
+    
+    let audioContext;
+    let currentTrackIndex = -1;
+    let availableTracks = [...TRACK_LIST.keys()]; 
+    let backgroundMusic; 
+    const trackTitleContainer = document.getElementById('track-title');
+    const trackTitleDisplay = trackTitleContainer.querySelector('span'); 
+    const musicOverlay = document.getElementById('music-overlay');
+    
+    const MAX_FPS = 144;
+    const FRAME_TIME = 1000 / MAX_FPS;
+    let lastTime = 0;
+
+    const BACKGROUND_COLOR = 0xB0B5BA; 
+    const STATIC_BASE_COLOR = 0x808080; 
+
+    let scene, camera, renderer;
+    let stack = [];
+    let movingBlock;
+    let gameStarted = false;
+    let isMovingX = true;
+    let direction = 1; 
+    let score = 0;
+    let speed = INITIAL_SPEED;
+    let isGameOver = false;
+    const targetCameraPosition = new THREE.Vector3(); 
+    let isFirstBlock = true;
+    const INITIAL_Y_OFFSET = -20; 
+    const scoreDisplay = document.getElementById('score-display');
+
+    function initAudioContext() {
+        if (!audioContext) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+    }
+
+    function getNextTrackIndex() {
+        if (availableTracks.length === 0) {
+            availableTracks = [...TRACK_LIST.keys()].filter(index => index !== currentTrackIndex);
+        }
+
+        const randomIndex = Math.floor(Math.random() * availableTracks.length);
+        const nextIndex = availableTracks[randomIndex];
+        
+        availableTracks.splice(randomIndex, 1); 
+        return nextIndex;
+    }
+    
+    function playNextTrack() {
+        if (TRACK_LIST.length === 0) return;
+        
+        const nextIndex = getNextTrackIndex();
+        currentTrackIndex = nextIndex;
+        const track = TRACK_LIST[currentTrackIndex];
+
+        trackTitleDisplay.textContent = track.title;
+        animateMusicOverlay(); 
+
+        if (backgroundMusic) {
+            backgroundMusic.pause();
+            backgroundMusic.currentTime = 0;
+        }
+
+        backgroundMusic = new Audio(track.file);
+        backgroundMusic.loop = false; 
+        
+        backgroundMusic.volume = GLOBAL_VOLUME; 
+        
+        backgroundMusic.addEventListener('ended', playNextTrack);
+        
+        const playPromise = backgroundMusic.play();
+
+        if (playPromise !== undefined) {
+            playPromise.then(_ => {
+            }).catch(error => {
+                console.warn("Autoplay was prevented. User interaction required to start music. Error:", error);
+                trackTitleDisplay.textContent = "Click anywhere to start music!";
+                musicOverlay.classList.add('visible');
+            });
+        }
+    }
+    
+    function animateMusicOverlay() {
+        musicOverlay.classList.add('visible');
+        
+        const textWidth = trackTitleDisplay.offsetWidth; 
+        const containerWidth = trackTitleContainer.offsetWidth;
+        
+        trackTitleContainer.classList.remove('scrolling');
+        
+        if (textWidth > 0 && textWidth > containerWidth) {
+            
+            const scrollableWidth = textWidth;
+            const scrollSpeed = 30; 
+            const duration = scrollableWidth / scrollSpeed; 
+            
+            trackTitleDisplay.style.animationDuration = `${duration}s`;
+            
+            trackTitleContainer.classList.add('scrolling');
+        } else {
+            trackTitleDisplay.style.animationDuration = '0s';
+        }
+        
+        setTimeout(() => {
+            musicOverlay.classList.remove('visible');
+            trackTitleContainer.classList.remove('scrolling'); 
+            trackTitleDisplay.style.animationDuration = '0s'; 
+        }, 6000); 
+    }
+
+    function playSuccessSound() {
+        const soundClone = successSound.cloneNode();
+        
+        soundClone.volume = GLOBAL_VOLUME; 
+        
+        soundClone.play().catch(e => {
+            console.log("Audio playback blocked:", e);
+        }); 
+    }
+
+    function init(isRestart = false) {
+        FALLING_BLOCKS.length = 0;
+        RIPPLE_EFFECTS.length = 0; 
+        score = 0;
+        speed = INITIAL_SPEED;
+        isMovingX = true;
+        direction = 1; 
+        isGameOver = false; 
+        isFirstBlock = true; 
+        
+        updateScoreDisplay(); 
+        
+        if (!scene || !isRestart) {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(BACKGROUND_COLOR); 
+            scene.fog = new THREE.Fog(BACKGROUND_COLOR, 50, 100);
+
+            const aspect = window.innerWidth / window.innerHeight;
+            camera = new THREE.OrthographicCamera(-ORTHO_D * aspect, ORTHO_D * aspect, ORTHO_D, -ORTHO_D, 1, 1000);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
+            
+            if (document.body.querySelector('canvas')) {
+                document.body.removeChild(document.body.querySelector('canvas'));
+            }
+            document.body.appendChild(renderer.domElement);
+
+            window.addEventListener('mousedown', clickHandler, false);
+            window.addEventListener('touchstart', clickHandler, false);
+            window.addEventListener('resize', onWindowResize, false);
+            
+            document.addEventListener('mousedown', startMusicOnInteraction, { once: true });
+            document.addEventListener('touchstart', startMusicOnInteraction, { once: true });
+            
+            animate(0); 
+        }
+
+        camera.position.set(ORTHO_D * 2, ORTHO_D * 2, ORTHO_D * 2);
+        camera.lookAt(0, 0, 0);
+
+        scene.children.filter(c => c.isLight).forEach(light => scene.remove(light));
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(20, 30, -20); 
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 5000;
+        directionalLight.shadow.mapSize.height = 5000;
+        directionalLight.shadow.camera.near = 0.5;
+        directionalLight.shadow.camera.far = 100;
+        const d = 20;
+        directionalLight.shadow.camera.left = -d;
+        directionalLight.shadow.camera.right = d + 20;
+        directionalLight.shadow.camera.top = d;
+        directionalLight.shadow.camera.bottom = -d;
+        scene.add(directionalLight);
+
+
+        if (isRestart) {
+            scene.children.slice().forEach(child => {
+                if ((child.isMesh && child.name !== 'Ground') || child.name === 'Ripple') {
+                    scene.remove(child);
+                    child.geometry.dispose();
+                    child.material.dispose();
+                }
+            });
+            stack.length = 0;
+            addBaseBlock();
+        } else {
+            if (scene.children.filter(c => c.name === 'Ground').length === 0) {
+                addGroundPlane(); 
+            }
+            addBaseBlock();
+        }
+        
+        addMovingBlock();
+    }
+    
+    function startMusicOnInteraction() {
+        initAudioContext();
+        if (!backgroundMusic || backgroundMusic.paused) {
+            playNextTrack();
+        }
+    }
+    
+    function addGroundPlane() {
+        const groundGeometry = new THREE.PlaneGeometry(100, 100);
+        const groundMaterial = new THREE.MeshLambertMaterial({ color: BACKGROUND_COLOR }); 
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = 0; 
+        ground.receiveShadow = true;
+        ground.name = 'Ground'; 
+        scene.add(ground);
+    }
+
+    function getNextRandomColor() {
+        const grayValue = 0.4 + Math.random() * 0.2; 
+        const color = new THREE.Color(grayValue, grayValue, grayValue);
+        return color.getHex();
+    }
+
+    function createBlock(sizeX, sizeZ, height, position, color) {
+        const geometry = new THREE.BoxGeometry(sizeX, height, sizeZ);
+        const material = new THREE.MeshLambertMaterial({ color: color });
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.position.copy(position);
+        
+        mesh.castShadow = true;
+        mesh.receiveShadow = true; 
+        
+        scene.add(mesh);
+        return mesh;
+    }
+
+    function addBaseBlock() {
+        for(let i = stack.length - 1; i >= 0; i--) {
+              scene.remove(stack[i]);
+        }
+        stack.length = 0;
+        
+        const initialColor = STATIC_BASE_COLOR;
+        const initialBlock = createBlock(STACK_SIZE, STACK_SIZE, BLOCK_HEIGHT, new THREE.Vector3(0, BLOCK_HEIGHT / 2, 0), initialColor);
+        initialBlock.userData = { 
+            sizeX: STACK_SIZE, 
+            sizeZ: STACK_SIZE,
+        };
+        stack.push(initialBlock);
+    }
+
+    function addMovingBlock() {
+        const lastBlock = stack[stack.length - 1];
+        
+        const sizeX = lastBlock.userData.sizeX; 
+        const sizeZ = lastBlock.userData.sizeZ;
+        
+        let startPosition;
+        const startOffset = STACK_SIZE * 2; 
+        let stackY = stack.length * BLOCK_HEIGHT + BLOCK_HEIGHT / 2;
+
+        direction = Math.random() > 0.5 ? 1 : -1; 
+
+        if (isMovingX) {
+            startPosition = new THREE.Vector3(-direction * startOffset, stackY, lastBlock.position.z);
+        } else {
+            startPosition = new THREE.Vector3(lastBlock.position.x, stackY, -direction * startOffset);
+        }
+        
+        if (isFirstBlock) {
+            startPosition.y = INITIAL_Y_OFFSET; 
+        }
+        
+        const nextColor = getNextRandomColor();
+
+        movingBlock = createBlock(sizeX, sizeZ, BLOCK_HEIGHT, startPosition, nextColor);
+        
+        movingBlock.userData = {
+            sizeX: sizeX,
+            sizeZ: sizeZ,
+            direction: direction,
+            isMovingX: isMovingX,
+            targetY: stackY, 
+            isAppearing: isFirstBlock,
+        };
+        
+        isFirstBlock = false; 
+    }
+    
+    function addRippleEffect(position, sizeX, sizeZ) {
+        const geometry = new THREE.BoxGeometry(sizeX, 0.01, sizeZ); 
+        const material = new THREE.MeshBasicMaterial({ 
+            color: RIPPLE_COLOR, 
+            transparent: true, 
+            opacity: 1 
+        });
+        
+        const ripple = new THREE.Mesh(geometry, material);
+        
+        ripple.position.set(position.x, position.y - BLOCK_HEIGHT / 2 - 0.001, position.z);
+        ripple.scale.set(1, 1, 1);
+        ripple.name = 'Ripple'; 
+        
+        scene.add(ripple);
+        
+        RIPPLE_EFFECTS.push({
+            mesh: ripple,
+            startTime: performance.now(),
+            sizeX: sizeX,
+            sizeZ: sizeZ
+        });
+    }
+    
+    function updateScoreDisplay() {
+        scoreDisplay.textContent = score;
+    }
+
+    function clickHandler() {
+        if (!gameStarted) {
+            if (movingBlock && !movingBlock.userData.isAppearing) {
+                        gameStarted = true;
+            }
+            startMusicOnInteraction();
+            return;
+        }
+        
+        if (!movingBlock || movingBlock.userData.isAppearing) return; 
+        
+        stopMovingBlock();
+    }
+
+    function stopMovingBlock() {
+        const lastBlock = stack[stack.length - 1];
+        const currentBlock = movingBlock;
+        scene.remove(currentBlock);
+        movingBlock = null;
+
+        const axis = isMovingX ? 'x' : 'z';
+        const size = isMovingX ? 'sizeX' : 'sizeZ';
+        
+        const delta = currentBlock.position[axis] - lastBlock.position[axis];
+        const overlap = currentBlock.userData[size] - Math.abs(delta);
+
+        if (overlap <= 0.05) { 
+            gameOver(currentBlock);
+            return;
+        }
+        
+        const blockColor = currentBlock.material.color.getHex();
+
+        const newSize = overlap;
+        const newCenter = lastBlock.position[axis] + delta / 2; 
+
+        const blockProps = {
+            x: isMovingX ? newSize : lastBlock.userData.sizeX,
+            z: isMovingX ? lastBlock.userData.sizeZ : newSize,
+            posX: isMovingX ? newCenter : lastBlock.position.x,
+            posZ: isMovingX ? lastBlock.position.z : newCenter,
+        };
+        
+        const stackY = stack.length * BLOCK_HEIGHT + BLOCK_HEIGHT / 2;
+
+        const fixedBlock = createBlock(
+            blockProps.x, 
+            blockProps.z, 
+            BLOCK_HEIGHT, 
+            new THREE.Vector3(blockProps.posX, stackY, blockProps.posZ),
+            blockColor
+        );
+
+        fixedBlock.userData = {
+            sizeX: blockProps.x,
+            sizeZ: blockProps.z,
+        };
+        stack.push(fixedBlock);
+        
+        playSuccessSound(); 
+        
+        addRippleEffect(fixedBlock.position, blockProps.x, blockProps.z);
+
+        const dropSize = currentBlock.userData[size] - overlap;
+        const dropCenter = lastBlock.position[axis] + Math.sign(delta) * (overlap + dropSize) / 2; 
+        
+        const dropProps = {
+            x: isMovingX ? dropSize : lastBlock.userData.sizeX,
+            z: isMovingX ? lastBlock.userData.sizeZ : dropSize,
+            posX: isMovingX ? dropCenter : lastBlock.position.x,
+            posZ: isMovingX ? lastBlock.position.z : dropCenter,
+        };
+
+        const droppedBlock = createBlock(
+            dropProps.x,
+            dropProps.z,
+            BLOCK_HEIGHT,
+            new THREE.Vector3(dropProps.posX, stackY, dropProps.posZ),
+            blockColor
+        );
+
+        droppedBlock.userData = { 
+            speedY: 0, 
+            removed: false,
+        };
+        FALLING_BLOCKS.push(droppedBlock);
+        
+        score++;
+        updateScoreDisplay();
+        if (speed < 0.3) {
+            speed += SPEED_INCREMENT;
+        }
+        
+        isMovingX = !isMovingX;
+        addMovingBlock();
+    }
+
+    function gameOver(droppedMovingBlock) {
+        gameStarted = false;
+        isGameOver = true; 
+        
+        if (droppedMovingBlock) {
+            droppedMovingBlock.userData = { 
+                speedY: 0, 
+                removed: false,
+            };
+            FALLING_BLOCKS.push(droppedMovingBlock);
+        }
+
+        targetCameraPosition.set(ORTHO_D * 2, ORTHO_D * 2, ORTHO_D * 2); 
+        
+        const baseBlock = stack.length > 0 ? stack[0] : null;
+        if (baseBlock) {
+            for (let i = stack.length - 1; i > 0; i--) { 
+                const block = stack[i];
+                block.userData = { 
+                    speedY: 0, 
+                    removed: false,
+                };
+                FALLING_BLOCKS.push(block);
+            }
+        }
+
+        stack = baseBlock ? [baseBlock] : []; 
+        
+        setTimeout(() => {
+            init(true); 
+        }, 1500); 
+    }
+
+    function animate(time) {
+        requestAnimationFrame(animate);
+
+        const elapsed = time - lastTime;
+        
+        if (elapsed < FRAME_TIME) {
+            return;
+        }
+
+        const deltaTime = elapsed / 1000;
+        const frameRateMultiplier = deltaTime * 60; 
+
+        lastTime = time - (elapsed % FRAME_TIME);
+
+        if (!isGameOver && gameStarted && stack.length > 1) {
+            const targetCamY = stack[stack.length - 1].position.y + ORTHO_D * 2 - BLOCK_HEIGHT / 2;
+            const targetLookY = stack[stack.length - 1].position.y - BLOCK_HEIGHT / 2;
+            
+            camera.position.y += (targetCamY - camera.position.y) * CAMERA_SMOOTHNESS * frameRateMultiplier;
+            
+            const currentLookAt = new THREE.Vector3(0, camera.position.y - ORTHO_D * 2, 0);
+            
+            currentLookAt.y += (targetLookY - currentLookAt.y) * CAMERA_SMOOTHNESS * frameRateMultiplier;
+            
+            camera.lookAt(0, currentLookAt.y, 0);
+
+        } else if (isGameOver) {
+            camera.position.lerp(targetCameraPosition, CAMERA_SMOOTHNESS * frameRateMultiplier);
+            camera.lookAt(0, 0, 0); 
+        }
+
+        if (movingBlock && movingBlock.userData.isAppearing) {
+            movingBlock.position.y += APPEAR_SPEED * frameRateMultiplier; 
+            
+            if (movingBlock.position.y >= movingBlock.userData.targetY) {
+                movingBlock.position.y = movingBlock.userData.targetY;
+                movingBlock.userData.isAppearing = false;
+            }
+        }
+
+        if (gameStarted && movingBlock && !movingBlock.userData.isAppearing) {
+            const axis = movingBlock.userData.isMovingX ? 'x' : 'z';
+            const direction = movingBlock.userData.direction;
+            
+            movingBlock.position[axis] += direction * speed * frameRateMultiplier;
+
+            const limit = STACK_SIZE * 2;
+            
+            if (Math.abs(movingBlock.position[axis]) >= limit) {
+                movingBlock.userData.direction = -direction;
+            }
+        }
+        
+        for (let i = FALLING_BLOCKS.length - 1; i >= 0; i--) {
+            const block = FALLING_BLOCKS[i];
+            if (!block.userData.removed) {
+                if (block.userData.speedY === undefined) block.userData.speedY = 0;
+                
+                block.userData.speedY -= GRAVITY * frameRateMultiplier; 
+                block.position.y += block.userData.speedY; 
+                
+                block.rotation.x += 0.01 * frameRateMultiplier;
+                block.rotation.z += 0.01 * frameRateMultiplier;
+                
+                if (block.position.y < -20) {
+                    scene.remove(block);
+                    block.geometry.dispose();
+                    block.material.dispose();
+                    
+                    block.userData.removed = true;
+                    FALLING_BLOCKS.splice(i, 1);
+                }
+            }
+        }
+        
+        const currentTime = performance.now();
+        for (let i = RIPPLE_EFFECTS.length - 1; i >= 0; i--) {
+            const effect = RIPPLE_EFFECTS[i];
+            const elapsed = currentTime - effect.startTime;
+            const progress = Math.min(1, elapsed / RIPPLE_DURATION); 
+            
+            if (progress < 1) {
+                const scale = 1 + (RIPPLE_MAX_SCALE - 1) * progress;
+                effect.mesh.scale.set(scale, 1, scale);
+                
+                effect.mesh.material.opacity = 1 - progress;
+            } else {
+                scene.remove(effect.mesh);
+                effect.mesh.geometry.dispose();
+                effect.mesh.material.dispose();
+                RIPPLE_EFFECTS.splice(i, 1);
+            }
+        }
+
+        renderer.render(scene, camera);
+    }
+
+    function onWindowResize() {
+        const aspect = window.innerWidth / window.innerHeight;
+        camera.left = -ORTHO_D * aspect;
+        camera.right = ORTHO_D * aspect;
+        camera.top = ORTHO_D;
+        camera.bottom = -ORTHO_D;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        
+        if (musicOverlay.classList.contains('visible')) {
+            animateMusicOverlay();
+        }
+    }
+
+    init();
+    
+    trackTitleDisplay.textContent = "Click to Start & Play Music";
+    musicOverlay.classList.add('visible');
+</script>
 </body>
 </html>
